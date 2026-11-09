@@ -2,4 +2,8 @@
 <paths>
     <external-path name="dl" path="Download/" />
     <external-files-path name="updates" path="updates/" />
+    <!-- Explorador de archivos: HOME privado, registro y ZIP temporales. -->
+    <files-path name="home" path="home/" />
+    <files-path name="logs" path="logs/" />
+    <cache-path name="share" path="share/" />
 </paths>

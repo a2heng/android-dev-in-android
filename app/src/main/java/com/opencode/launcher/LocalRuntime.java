@@ -242,6 +242,7 @@ public final class LocalRuntime {
                 return true;
             }
             Context app = ctx.getApplicationContext();
+            AppLog.init(app);
             if (nativeEnabled(app) && nativeAvailable(app)) {
                 try {
                     if (startNative(app, port)) {
@@ -891,6 +892,7 @@ public final class LocalRuntime {
                 String line;
                 while ((line = r.readLine()) != null) {
                     Log.i(TAG, line);
+                    AppLog.line("opencode", line);
                 }
             } catch (IOException ignored) {
             }

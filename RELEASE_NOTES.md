@@ -1,29 +1,31 @@
-# Adia v0.2.0
+# Adia v0.3.0
 
 Android Dev In Android —— 在手机上运行 opencode 和完整的 Android 构建工具链，离线优先。
 
 ## 本版重点
 
-- **正式签名版**：Release 只构建 `assembleRelease`，CI 强制要求
-  `ADIA_KEYSTORE_BASE64` / `ADIA_KEY_ALIAS` / `ADIA_KEYSTORE_PASS` /
-  `ADIA_KEY_PASS`，不再回退到 debug 预览包。
-- **项目路径选择器修复**：新建项目时点 `~` 或 `/` 不再进入无法读取的
-  Android 根目录。两者都指向应用管理的规范项目根
-  `~/workspace`，后续逐级浏览也都在这个目录内完成。
-- **新 skill `android-lib-cache`**：未预装的库只下载一次，写入共享缓存
-  `~/toolchain/gradle-home` 和 Maven 布局镜像 `~/toolchain/m2`；本机其他
-  Gradle 项目、Maven、sbt、`javac`、脚本都能复用。
-- **`android-build` 更稳**：自动识别 native/proot 下的 `PREFIX`，
-  Gradle 临时目录固定到 `~/.cache/tmp`，不再手写 Termux 真实路径；
-  AndroidX/Jetifier、Kotlin stdlib 冲突、AAR metadata 等常见错误已写入
-  troubleshooting。
-- **16 KB 检查修正**：`armeabi-v7a` / `x86` 等 32 位库标记为 `SKIP`，
-  不再误报 `4KB/UNALIGNED`。只有 64 位库未对齐才会让 release 失败。
-- **预装 16 KB 工具**：`aapt2`、Termux `aidl` 和 Termux `adb` 均为 16 KB
-  对齐；`aapt`/`dexdump`/`split-select`/`zipalign` 是可选 legacy 工具，
-  AGP 8.5 正常构建不会执行。16 KB 是官方建议，4 KB 设备仍可运行。
-- **21 个内置 skill**：新增 `android-lib-cache`，并按手机上的真实构建会话
-  补强 build、project、gradle、deps、16 KB 等 skill。
+- **新增文件系统（悬浮菜单）**：悬浮按钮里可以直接浏览 `~`（应用私有目录）
+  下的所有文件与文件夹。文件可以分享给其他应用，也可以「保存到手机」
+  （系统文件选择器，存到下载/文档）；文件夹会先打包成 ZIP 再分享或保存，
+  方便把一个项目或一整个目录发给别人。
+- **悬浮菜单重做**：改成带图标和分组的下拉面板（Servidor / Archivos /
+  Sistema），每项都有标题和一句说明；图标全部换成统一的矢量图标，不再用
+  系统自带的杂项图标。
+- **日志真正可用**：应用和 opencode 运行时的输出都写入
+  `files/logs/adia.log`（512 KB 轮转），「Registro」可以查看、复制、分享、
+  清空；不再依赖那个关掉应用就清空的文本框。
+- **报告问题重做**：不再塞一大段看不懂的模板。现在只有一个「发生了什么」
+  输入框和一个「附带设备信息与日志」开关，点「Abrir en GitHub」直接打开
+  Adia 仓库的新 issue，内容干净、可读。
+- **用量修复**：改用 v2 的 `/api/session`（带 Basic 认证），正确解析
+  `{data:[...]}`，并显示缓存读取 token；删除会话也改用
+  `DELETE /api/session/<id>`。
+- **检查更新修复**：检查的是本仓库的 `v0.x` release（之前在看 v4/v5
+  分支，永远查不到）。
+- **移除 `/` 与 `~` 的路径劫持**：不再拦截 `fs/list` 改写路径。之前把
+  `/`、`~` 和 workspace 外的路径强行映射到 `~/workspace`，反而让项目选择器
+  出现新的异常；现在保持 opencode 原本的行为，只保留项目 git 初始化和
+  sdcard 目录补全。
 
 ## 仍然保持
 
@@ -31,20 +33,22 @@ Android Dev In Android —— 在手机上运行 opencode 和完整的 Android �
 - **v2 自动登录**：一次性 `/auth/connect/<code>` 建立会话，不手输密码。
 - **离线工具链**：Termux JDK 21、Android platform 35、aarch64 aapt2、
   Gradle 9.8.1、Maven 种子缓存、设备内 adb。
-- **16 KB 优先**：aapt2 为 16 KB 对齐；release 构建遇到 64 位 native 库
-  4 KB 对齐会失败。
-- **无“所有文件访问”权限**：workspace、toolchain、配置和 skills 全部位于
-  `/data/user/0/com.a2heng.adia/files/home`。
-- **中文原生 UI**，opencode Web UI 支持中文。
+- **21 个内置 skill**：构建、调试、项目、UI、测试、发布、安装、性能、
+  NDK、依赖、共享库缓存、国际化、安全、Gradle、发布、架构、网络、数据库、
+  后台、16 KB、skill-installer。
+- **无「所有文件访问」权限**：workspace、toolchain、配置和 skills 全部位于
+  `/data/user/0/com.a2heng.adia/files/home`；文件分享走 FileProvider，
+  保存走系统文件选择器。
 
 ## 安装
 
 ```sh
-adb install -r adia-0.2.0.apk
+adb install -r adia-0.3.0.apk
 ```
 
 打开 **Adia**，等待离线 toolbox/toolchain 就绪，然后新建会话。
-新项目建议放在 `~/workspace/<项目名>`。
+新项目建议放在 `~/workspace/<项目名>`；需要导出时点右下角悬浮按钮 →
+**Archivos**。
 
 ## 已知限制
 
@@ -57,6 +61,8 @@ adb install -r adia-0.2.0.apk
 - 没有完整 NDK/CMake bundle；见 `android-ndk` skill。
 - 离线 Maven 种子缓存来自本项目，不是通用镜像；缺失库用
   `android-lib-cache` 下载并共享。
+- 文件夹导出会完整打包（包括 `.git`、`build` 等），大目录请耐心等待；
+  压缩期间不要退出应用。
 - 由于执行/下载代码和侧载能力，不能上 Google Play。
 
 ## 致谢与许可
@@ -82,89 +88,65 @@ adb install -r adia-0.2.0.apk
 
 ---
 
-# Adia v0.2.0 — English
+# Adia v0.3.0 — English
 
 Android Dev In Android: run opencode and a full Android build toolchain on the
 phone, offline-first.
 
 ## Highlights
 
-- **Signed release only**: CI builds `assembleRelease` and requires
-  `ADIA_KEYSTORE_BASE64`, `ADIA_KEY_ALIAS`, `ADIA_KEYSTORE_PASS` and
-  `ADIA_KEY_PASS`. There is no debug-preview fallback.
-- **Project picker fixed**: `~` and `/` no longer open the unreadable Android
-  root. Both resolve to the app-managed project root `~/workspace`, and every
-  deeper folder stays inside it.
-- **New `android-lib-cache` skill**: a missing library is downloaded once into
-  the shared `~/toolchain/gradle-home` cache and a Maven-layout mirror at
-  `~/toolchain/m2`. Other Gradle projects, Maven, sbt, `javac` and scripts on
-  the phone reuse the same files.
-- **More reliable `android-build`**: detects `PREFIX` in native and proot
-  shells, pins Gradle's temp dir to `~/.cache/tmp`, and documents AndroidX/
-  Jetifier, Kotlin stdlib conflicts and AAR metadata errors.
-- **16 KB checker fixed**: 32-bit ABIs (`armeabi-v7a`, `x86`) are reported as
-  `SKIP`, not `4KB/UNALIGNED`. Only misaligned 64-bit libraries fail a release.
-- **16 KB tools preinstalled**: `aapt2`, Termux `aidl` and Termux `adb` are
-  16 KB aligned. `aapt`/`dexdump`/`split-select`/`zipalign` are optional legacy
-  tools that AGP 8.5 does not execute. 16 KB is the official recommendation;
-  4 KB devices still run.
-- **21 bundled skills**: `android-lib-cache` added; build, project, gradle,
-  deps and 16 KB skills improved from a real on-device build session.
+- **New file system in the floating menu**: browse every file and folder under
+  `~` (the app-private home). Files can be shared to other apps or saved to the
+  phone through the system file picker (Downloads/Documents). Folders are
+  zipped first, then shared or saved, so you can hand a whole project or
+  directory to someone else.
+- **Redesigned floating menu**: a grouped sheet with proper vector icons
+  (Server / Files / System) and a short description per action, replacing the
+  old system-icon popup.
+- **The log actually works**: app and opencode runtime output go to
+  `files/logs/adia.log` (512 KB rotation). "Log" can view, copy, share and
+  clear it instead of the old in-memory text box.
+- **Report a problem redesigned**: no more cryptic template. One "what
+  happened" field, one "attach device info and log" switch, and
+  "Open on GitHub" creates a clean, readable issue in the Adia repository.
+- **Usage fixed**: uses the v2 `/api/session` endpoint with Basic auth, parses
+  `{data:[...]}`, shows cache-read tokens, and deletes sessions through
+  `DELETE /api/session/<id>`.
+- **Update check fixed**: it now checks this repository's `v0.x` releases
+  (it used to look at the v4/v5 channels and never found anything).
+- **Removed the `/` and `~` path hijack**: `fs/list` is no longer intercepted
+  to rewrite paths. Forcing `/`, `~` and out-of-workspace paths into
+  `~/workspace` caused new picker bugs; upstream behaviour is kept, along with
+  project git initialisation and sdcard folder completion.
 
-## Kept from 0.1.0
+## Kept from 0.2.0
 
 - App name **Adia**, package `com.a2heng.adia`, opencode **2.2.6**.
 - **Automatic v2 login** via a one-time `/auth/connect/<code>` link.
 - **Offline toolchain**: Termux JDK 21, Android platform 35, aarch64 aapt2,
   Gradle 9.8.1, Maven seed cache and on-device adb.
-- **16 KB first**: 16 KB-aligned aapt2; release builds fail on misaligned
-  64-bit native libraries.
-- **No `MANAGE_EXTERNAL_STORAGE`**: workspace, toolchain, config and skills
-  live under `/data/user/0/com.a2heng.adia/files/home`.
-- **Chinese native UI** plus the opencode Web UI.
+- **21 bundled skills**.
+- **No "All files access" permission**: everything lives in the app-private
+  home; sharing uses FileProvider and saving uses the system file picker.
 
 ## Install
 
 ```sh
-adb install -r adia-0.2.0.apk
+adb install -r adia-0.3.0.apk
 ```
 
 Open **Adia**, wait for the offline toolbox/toolchain, then start a session.
-Put new projects under `~/workspace/<name>`.
+Keep projects in `~/workspace/<name>`; to export, tap the floating button →
+**Files**.
 
 ## Known limitations
 
-- The 16 KB check is static alignment; the test device has a 4 KB kernel
-  (`ro.boot.hardware.cpu.pagesize=4096`), so no 16 KB kernel test is available.
-  16 KB is the official recommendation; 4 KB devices still work.
+- 16 KB is still a static alignment check; the test device is 4 KB
+  (`ro.boot.hardware.cpu.pagesize=4096`). 16 KB is the official direction,
+  not a claim that 4 KB is broken.
 - Optional legacy `aapt`, `dexdump`, `split-select` and `zipalign` are still
-  4 KB; AGP 8.5 does not execute them. The critical `aapt2`, `aidl` and `adb`
-  are 16 KB.
+  4 KB; AGP 8.5 does not run them.
 - No full NDK/CMake bundle; see the `android-ndk` skill.
-- The offline Maven seed is not a universal mirror; use `android-lib-cache`
-  for missing libraries.
-- Not eligible for Google Play due to executing/downloading code and sideload
-  capabilities.
-
-## Credits and licenses
-
-Built on the MIT-licensed
-[Dajeovv/opencode-android](https://github.com/Dajeovv/opencode-android).
-Thanks to its author for the native opencode-in-APK architecture, the proot
-toolbox and the WebView launcher.
-
-Thanks also to:
-
-- [anomalyco/opencode](https://github.com/anomalyco/opencode) (MIT)
-- [appdevforall/CodeOnTheGo](https://github.com/appdevforall/CodeOnTheGo) (GPL-3.0)
-- [AndroidIDEOfficial/AndroidIDE](https://github.com/AndroidIDEOfficial/AndroidIDE) (GPL-3.0)
-- [termux/termux-app](https://github.com/termux/termux-app) (GPL-3.0; terminal-view/emulator Apache-2.0)
-- [termux/proot-distro](https://github.com/termux/proot-distro) (GPL-3.0)
-- [CrimsonCurious/vexel](https://github.com/CrimsonCurious/vexel) (MIT)
-- [poordevcode/termux-android-studio](https://github.com/poordevcode/termux-android-studio) (Apache-2.0)
-- [Thr45hx/opencode-termux-native](https://github.com/Thr45hx/opencode-termux-native) (MIT)
-- [Zar-Manah/opencode-android-apk](https://github.com/Zar-Manah/opencode-android-apk) (GPL-3.0)
-- [lzhiyong/android-sdk-tools](https://github.com/lzhiyong/android-sdk-tools) (Apache-2.0)
-
-See [`THIRD_PARTY_LICENSES.md`](THIRD_PARTY_LICENSES.md) for bundled binaries
-and their licenses.
+- Folder export packs everything (including `.git` and `build`); large folders
+  take time. Keep the app open while zipping.
+- Cannot be published on Google Play (executes/downloads code and sideloads).

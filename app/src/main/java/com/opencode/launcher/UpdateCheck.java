@@ -55,9 +55,9 @@ public class UpdateCheck {
         return 0;
     }
 
-    /** Canal de releases del launcher: la v1 sigue la rama 4.x y la v2 la 5.x. */
+    /** Canal de releases del launcher. Adia usa tags v0.x.y. */
     static String launcherChannel() {
-        return BuildConfig.V2 ? "v5." : "v4.";
+        return "v0.";
     }
 
     /** Mayor del runtime opencode que usa esta app: 1.x en v1, 2.x en v2. */

@@ -234,10 +234,14 @@ public class MainActivity extends AppCompatActivity {
     private final StringBuilder updDbg = new StringBuilder();
     private ValueCallback<Uri[]> filePathCallback;
     private ActivityResultLauncher<Intent> fileChooserLauncher;
+    /** Explorador de archivos del menu flotante y su selector de destino. */
+    private FilesSheet filesSheet;
+    private ActivityResultLauncher<Intent> exportLauncher;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        AppLog.init(this);
         // Inmersivo desde el primer fotograma: si las barras se ocultan despues,
         // la ventana cambia de tamano y se ve un "mini zoom" al entrar al chat.
         enterImmersive();
@@ -665,6 +669,12 @@ public class MainActivity extends AppCompatActivity {
                     } else {
                         snack(T("Bloqueado: sin desbloqueo no hay chat",
                                 "Locked: no unlock, no chat"));
+                    }
+                });
+        exportLauncher = registerForActivityResult(
+                new ActivityResultContracts.StartActivityForResult(), r -> {
+                    if (filesSheet != null) {
+                        filesSheet.onExportResult(r.getResultCode(), r.getData());
                     }
                 });
         if (Build.VERSION.SDK_INT >= 33
@@ -1842,22 +1852,13 @@ public class MainActivity extends AppCompatActivity {
         @JavascriptInterface
         public void debug(String msg) {
             Log.d("OpenCode", "auto-shim-js: " + msg);
+            AppLog.line("web", msg);
         }
 
         /** Ruta canonica de HOME, para migrar rutas antiguas de la UI. */
         @JavascriptInterface
         public String homeDir() {
             return LocalRuntime.homeDir(MainActivity.this).getAbsolutePath();
-        }
-
-        /**
-         * Raiz canonica de proyectos. El selector de carpetas usa esta ruta
-         * para "~" y "/" porque el resto del arbol de Android no es legible
-         * ni escribible por la app.
-         */
-        @JavascriptInterface
-        public String workspaceDir() {
-            return LocalRuntime.workspaceDir(MainActivity.this).getAbsolutePath();
         }
 
         /**
@@ -2796,89 +2797,188 @@ public class MainActivity extends AppCompatActivity {
     }
 
     /**
-     * Menu del boton flotante: estado (punto + texto) y acciones,
-     * sin salir del chat.
+     * Menu del boton flotante, rehecho como hoja inferior: iconos propios,
+     * secciones claras y acciones que funcionan en la linea Next (donde el
+     * panel de controles no existe).
      */
     private void showControlsMenu(View anchor) {
-        android.widget.PopupMenu menu = new android.widget.PopupMenu(this, anchor);
+        showControlsSheet();
+    }
+
+    private void showControlsSheet() {
+        final BottomSheetDialog sheet = new BottomSheetDialog(this);
+        LinearLayout root = new LinearLayout(this);
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.setPadding(0, dp(6), 0, dp(14));
+
+        // Cabecera: nombre, version y estado real del servidor.
+        LinearLayout head = new LinearLayout(this);
+        head.setOrientation(LinearLayout.HORIZONTAL);
+        head.setGravity(Gravity.CENTER_VERTICAL);
+        head.setPadding(dp(20), dp(6), dp(20), dp(10));
+        View dot = new View(this);
+        dot.setBackgroundResource(serverOpen ? R.drawable.dot_green : R.drawable.dot_red);
+        LinearLayout.LayoutParams dlp = new LinearLayout.LayoutParams(dp(10), dp(10));
+        dlp.rightMargin = dp(10);
+        head.addView(dot, dlp);
+        LinearLayout hcol = new LinearLayout(this);
+        hcol.setOrientation(LinearLayout.VERTICAL);
+        TextView htitle = new TextView(this);
+        htitle.setText("Adia " + appVersionName());
+        htitle.setTextSize(17);
+        htitle.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        hcol.addView(htitle);
+        TextView hsub = new TextView(this);
+        hsub.setText(serverOpen ? T("Servidor abierto", "Server open")
+                : T("Servidor detenido", "Server stopped"));
+        hsub.setTextSize(12);
+        hsub.setTextColor(textSecondary());
+        hcol.addView(hsub);
+        head.addView(hcol, new LinearLayout.LayoutParams(0,
+                LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+        root.addView(head);
+
         if (!chatOnly()) {
-            // El panel inicial solo existe en la linea con Termux.
-            menu.getMenu().add(0, 0, 0, serverOpen ? T("Servidor abierto", "Server open")
-                    : T("Servidor detenido", "Server stopped"))
-                    .setIcon(serverOpen ? R.drawable.dot_green : R.drawable.dot_red);
-            menu.getMenu().add(0, 2, 2, T("Panel de controles", "Controls panel"))
-                    .setIcon(android.R.drawable.ic_menu_manage);
+            addMenuRow(sheet, root, R.drawable.ic_panel,
+                    T("Panel de controles", "Controls panel"),
+                    T("Volver a la pantalla de inicio", "Back to the start screen"),
+                    () -> setFullscreen(false));
         }
-        menu.getMenu().add(0, 1, 1, T("Registro", "Log")).setIcon(android.R.drawable.ic_menu_info_details);
-        menu.getMenu().add(0, 3, 3, T("Reiniciar servidor", "Restart server")).setIcon(android.R.drawable.ic_popup_sync);
-        menu.getMenu().add(0, 4, 4, T("Detener servidor", "Stop server")).setIcon(android.R.drawable.ic_menu_close_clear_cancel);
-        if (updatePending && updateInstallable)
-            menu.getMenu().add(0, 5, 5, T("Actualizar opencode ", "Update opencode ")
-                    + updInstalled + " → " + updLatest).setIcon(android.R.drawable.ic_menu_upload);
-        if (appUpdatePending)
-            menu.getMenu().add(0, 10, 5, T("Nueva versión de la app ", "New app version ")
-                    + appUpdTag + T(" — Descargar", " — Download"))
-                    .setIcon(android.R.drawable.stat_sys_download);
-        else
-            menu.getMenu().add(0, 11, 5, T("Buscar actualización de la app", "Check app update"))
-                    .setIcon(android.R.drawable.ic_popup_sync);
-        menu.getMenu().add(0, 7, 7, T("Opciones", "Options")).setIcon(android.R.drawable.ic_menu_preferences);
-        menu.getMenu().add(0, 8, 8, T("Consumo", "Usage")).setIcon(android.R.drawable.ic_menu_info_details);
-        menu.getMenu().add(0, 9, 9, T("Reportar problema", "Report problem")).setIcon(android.R.drawable.ic_menu_send);
-        menu.setOnMenuItemClickListener(item -> {
-            int id = item.getItemId();
-            if (id == 0 || id == 2) {
-                setFullscreen(false);
-                return true;
-            }
-            if (id == 1) {
-                showLogDialog();
-                return true;
-            }
-            if (id == 3) {
-                restartServer();
-                return true;
-            }
-            if (id == 4) {
-                stopServer();
-                return true;
-            }
-            if (id == 5) {
-                startRuntimeUpdate();
-                return true;
-            }
-            if (id == 10) {
-                installAppUpdateNow();
-                return true;
-            }
-            if (id == 11) {
-                checkLauncherUpdate(true);
-                return true;
-            }
-            if (id == 7) {
-                showOptionsDialog();
-                return true;
-            }
-            if (id == 8) {
-                showUsageDialog();
-                return true;
-            }
-            if (id == 9) {
-                reportProblem();
-                return true;
-            }
-            return false;
-        });
+
+        addMenuGroup(root, T("Servidor", "Server"));
+        addMenuRow(sheet, root, R.drawable.ic_restart,
+                T("Reiniciar servidor", "Restart server"),
+                T("Reinicia opencode sin cerrar la app",
+                        "Restarts opencode without closing the app"),
+                this::restartServer);
+        addMenuRow(sheet, root, R.drawable.ic_stop,
+                T("Detener servidor", "Stop server"),
+                T("Libera memoria; el chat queda desconectado",
+                        "Frees memory; the chat disconnects"),
+                this::stopServer);
+        if (updatePending && updateInstallable) {
+            addMenuRow(sheet, root, R.drawable.ic_update,
+                    T("Actualizar opencode", "Update opencode"),
+                    updInstalled + " → " + updLatest, this::startRuntimeUpdate);
+        }
+
+        addMenuGroup(root, T("Archivos", "Files"));
+        addMenuRow(sheet, root, R.drawable.ic_folder, T("Archivos", "Files"),
+                T("Explorar, compartir o guardar archivos y carpetas",
+                        "Browse, share or save files and folders"),
+                () -> {
+                    if (filesSheet == null) {
+                        filesSheet = new FilesSheet(this, this::T, this::snack,
+                                intent -> exportLauncher.launch(intent));
+                    }
+                    filesSheet.show();
+                });
+        addMenuRow(sheet, root, R.drawable.ic_terminal, T("Registro", "Log"),
+                T("Ver, copiar o compartir lo que ha pasado",
+                        "View, copy or share what happened"),
+                this::showLogDialog);
+        addMenuRow(sheet, root, R.drawable.ic_chart, T("Consumo", "Usage"),
+                T("Tokens y coste por sesión", "Tokens and cost per session"),
+                this::showUsageDialog);
+
+        addMenuGroup(root, T("Sistema", "System"));
+        addMenuRow(sheet, root, R.drawable.ic_settings, T("Opciones", "Options"),
+                T("Arranque, vigía, bloqueo e idioma",
+                        "Boot, watchdog, lock and language"),
+                this::showOptionsDialog);
+        if (appUpdatePending) {
+            addMenuRow(sheet, root, R.drawable.ic_update,
+                    T("Nueva versión ", "New version ") + appUpdTag,
+                    T("Toca para descargar e instalar",
+                            "Tap to download and install"),
+                    this::installAppUpdateNow);
+        } else {
+            addMenuRow(sheet, root, R.drawable.ic_update,
+                    T("Buscar actualización", "Check for updates"),
+                    T("Comprueba los releases de Adia", "Checks Adia releases"),
+                    () -> checkLauncherUpdate(true));
+        }
+        addMenuRow(sheet, root, R.drawable.ic_bug,
+                T("Reportar problema", "Report a problem"),
+                T("Abre un issue en GitHub con tu descripción",
+                        "Opens a GitHub issue with your description"),
+                this::reportProblem);
+
+        ScrollView scroll = new ScrollView(this);
+        scroll.addView(root);
+        sheet.setContentView(scroll);
+        sheet.show();
+    }
+
+    private String appVersionName() {
         try {
-            java.lang.reflect.Field f = menu.getClass().getDeclaredField("mPopup");
-            f.setAccessible(true);
-            Object p = f.get(menu);
-            java.lang.reflect.Method m =
-                    p.getClass().getDeclaredMethod("setForceShowIcon", boolean.class);
-            m.invoke(p, true);
-        } catch (Exception ignored) {
+            String v = getPackageManager().getPackageInfo(getPackageName(), 0).versionName;
+            return v == null ? "" : v.replace("-adia", "");
+        } catch (Exception e) {
+            return "";
         }
-        menu.show();
+    }
+
+    private int textSecondary() {
+        TypedValue tv = new TypedValue();
+        getTheme().resolveAttribute(android.R.attr.textColorSecondary, tv, true);
+        if (tv.resourceId != 0) return getColor(tv.resourceId);
+        return tv.data;
+    }
+
+    private void addMenuGroup(LinearLayout root, String label) {
+        TextView tv = new TextView(this);
+        tv.setText(label.toUpperCase(Locale.getDefault()));
+        tv.setTextSize(11);
+        tv.setLetterSpacing(0.08f);
+        tv.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        tv.setTextColor(textSecondary());
+        tv.setPadding(dp(22), dp(12), dp(20), dp(4));
+        root.addView(tv);
+    }
+
+    private void addMenuRow(BottomSheetDialog sheet, LinearLayout root, int icon,
+                            String title, String subtitle, Runnable action) {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding(dp(20), dp(10), dp(16), dp(10));
+        TypedValue bg = new TypedValue();
+        getTheme().resolveAttribute(android.R.attr.selectableItemBackground, bg, true);
+        row.setBackgroundResource(bg.resourceId);
+        row.setClickable(true);
+
+        ImageView iv = new ImageView(this);
+        iv.setImageResource(icon);
+        iv.setColorFilter(textSecondary());
+        LinearLayout.LayoutParams ilp = new LinearLayout.LayoutParams(dp(24), dp(24));
+        ilp.rightMargin = dp(16);
+        row.addView(iv, ilp);
+
+        LinearLayout col = new LinearLayout(this);
+        col.setOrientation(LinearLayout.VERTICAL);
+        TextView tt = new TextView(this);
+        tt.setText(title);
+        tt.setTextSize(15);
+        col.addView(tt);
+        if (subtitle != null && !subtitle.isEmpty()) {
+            TextView st = new TextView(this);
+            st.setText(subtitle);
+            st.setTextSize(11);
+            st.setTextColor(textSecondary());
+            col.addView(st);
+        }
+        row.addView(col, new LinearLayout.LayoutParams(0,
+                LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+
+        row.setOnClickListener(v -> {
+            try {
+                sheet.dismiss();
+            } catch (Exception ignored) {
+            }
+            action.run();
+        });
+        root.addView(row);
     }
 
     /** Opciones de arranque y vigía. Cada una trae su definición (ES/EN);
@@ -3154,75 +3254,104 @@ public class MainActivity extends AppCompatActivity {
         root.addView(s);
     }
 
-    /** Reportar problema: arma diagnostico + registro (claves tapadas) y abre
-     *  un issue de GitHub ya relleno (el usuario solo pulsa Enviar). Sin
-     *  navegador o sin red, lo deja en el portapapeles. Vale para cualquiera:
-     *  no pide nada tecnico, y nunca manda claves (se tapan antes de salir). */
+    /**
+     * Reportar problema: una caja para escribir qué pasó y un interruptor
+     * para adjuntar el registro real. Abre un issue nuevo en el repositorio
+     * de Adia con un cuerpo corto y legible (sin plantillas raras).
+     */
     private void reportProblem() {
-        snack(T("Armando reporte…", "Building report…"));
-        new Thread(() -> {
-            String installed = queryHealthVersion();
-            android.content.SharedPreferences p =
-                    getSharedPreferences("app", MODE_PRIVATE);
-            if (installed == null || installed.isEmpty())
-                installed = p.getString("upd_installed", "?");
-            String latest = p.getString("upd_latest", "?");
-            String appVer;
-            try {
-                appVer = getPackageManager().getPackageInfo(getPackageName(), 0).versionName;
-            } catch (Exception e) {
-                appVer = "?";
-            }
-            String lang = p.getString("lang",
-                    java.util.Locale.getDefault().getLanguage());
-            StringBuilder b = new StringBuilder();
-            b.append("### App\n");
-            b.append("- App: ").append(appVer).append("\n");
-            b.append("- Android: ").append(Build.VERSION.RELEASE)
-                    .append(" (SDK ").append(Build.VERSION.SDK_INT).append("), ")
-                    .append(Build.MANUFACTURER).append(" ").append(Build.MODEL).append("\n");
-            b.append("- Servidor: ").append(serverOpen ? "abierto" : "cerrado").append("\n");
-            b.append("- opencode instalada: ").append(installed)
-                    .append(" (última conocida: ").append(latest).append(")\n");
-            b.append("### Opciones\n");
-            b.append("- Arranque: ").append(ServerWatch.bootOn(this) ? "SÍ" : "NO")
-                    .append(", Vigía: ").append(ServerWatch.wdMode(this))
-                    .append(", Intervalo: ").append(ServerWatch.wdMin(this)).append(" min\n");
-            b.append("- Bloqueo: ").append(lockOn() ? "SÍ" : "NO")
-                    .append(", Permisos auto: ").append(autoPerm() ? "SÍ" : "NO")
-                    .append(", Idioma: ").append(lang).append("\n");
-            b.append("### Qué pasa (edítalo antes de enviar)\n");
-            b.append("<describe aquí qué falla>\n");
-            String rawLog = "";
-            try {
-                rawLog = txtLog.getText().toString();
-            } catch (Exception ignored) {
-            }
-            String log = redactSecrets(rawLog);
-            if (log.length() > 3000) log = "…(recortado)…\n" + log.substring(log.length() - 3000);
-            b.append("### Registro (claves tapadas)\n```\n").append(log).append("\n```\n");
-            final String title = "Reporte app v" + appVer;
-            final String body = b.toString();
-            runOnUiThread(() -> {
-                try {
-                    String url = "https://github.com/" + REPORT_REPO + "/issues/new?title="
-                            + java.net.URLEncoder.encode(title, "UTF-8")
-                            + "&body=" + java.net.URLEncoder.encode(body, "UTF-8");
-                    startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(url)));
-                } catch (Exception e) {
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        int p = dp(20);
+        box.setPadding(p, dp(8), p, 0);
+
+        EditText what = new EditText(this);
+        what.setHint(T("¿Qué pasaba? ¿Qué esperabas que pasara?",
+                "What happened? What did you expect?"));
+        what.setMinLines(3);
+        what.setGravity(Gravity.TOP | Gravity.START);
+        what.setInputType(InputType.TYPE_CLASS_TEXT
+                | InputType.TYPE_TEXT_FLAG_MULTI_LINE
+                | InputType.TYPE_TEXT_FLAG_CAP_SENTENCES);
+        box.addView(what);
+
+        android.widget.CheckBox attach = new android.widget.CheckBox(this);
+        attach.setText(T("Adjuntar datos del dispositivo y registro",
+                "Attach device info and log"));
+        attach.setChecked(true);
+        box.addView(attach);
+
+        TextView note = new TextView(this);
+        note.setText(T("Se abrirá GitHub en el navegador; revisa el texto antes de enviarlo.",
+                "GitHub will open in the browser; review the text before sending."));
+        note.setTextSize(11);
+        note.setTextColor(textSecondary());
+        note.setPadding(0, dp(4), 0, 0);
+        box.addView(note);
+
+        new com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
+                .setTitle(T("Reportar problema", "Report a problem"))
+                .setView(box)
+                .setPositiveButton(T("Abrir en GitHub", "Open on GitHub"), (d, w) -> {
+                    String text = what.getText() == null ? "" : what.getText().toString().trim();
+                    openIssue(text, attach.isChecked());
+                })
+                .setNeutralButton(T("Copiar", "Copy"), (d, w) -> {
+                    String text = what.getText() == null ? "" : what.getText().toString().trim();
                     try {
-                        ClipboardManager cm = (ClipboardManager)
-                                getSystemService(Context.CLIPBOARD_SERVICE);
-                        cm.setPrimaryClip(ClipData.newPlainText("opencode-reporte",
-                                title + "\n\n" + body));
-                        snack(T("Sin navegador: reporte copiado, pégalo donde quieras",
-                                "No browser: report copied, paste it anywhere"));
-                    } catch (Exception e2) {
-                        snack(T("No se pudo abrir ni copiar", "Could not open nor copy"));
+                        ClipboardManager cm =
+                                (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
+                        cm.setPrimaryClip(ClipData.newPlainText("adia-report",
+                                reportBody(text, attach.isChecked())));
+                        snack(T("Reporte copiado", "Report copied"));
+                    } catch (Exception e) {
+                        snack(T("No se pudo copiar", "Could not copy"));
                     }
-                }
-            });
-        }).start();
+                })
+                .setNegativeButton(T("Cancelar", "Cancel"), null)
+                .show();
+    }
+
+    private String reportBody(String description, boolean withLog) {
+        StringBuilder b = new StringBuilder();
+        b.append(description.isEmpty()
+                ? T("(describe aquí el problema)", "(describe the problem here)")
+                : description).append("\n\n---\n");
+        b.append("- Adia: ").append(appVersionName()).append('\n');
+        b.append("- Android: ").append(Build.VERSION.RELEASE)
+                .append(" (SDK ").append(Build.VERSION.SDK_INT).append(")\n");
+        b.append("- Dispositivo: ").append(Build.MANUFACTURER)
+                .append(' ').append(Build.MODEL).append('\n');
+        b.append("- Servidor: ").append(serverOpen ? "abierto" : "detenido").append('\n');
+        b.append("- opencode: ").append(getSharedPreferences("app", MODE_PRIVATE)
+                .getString("upd_installed", "?")).append('\n');
+        if (withLog) {
+            String log = redactSecrets(AppLog.read(this));
+            if (log.length() > 12000) {
+                log = "…(recortado)…\n" + log.substring(log.length() - 12000);
+            }
+            if (!log.isEmpty()) {
+                b.append("\n<details><summary>Registro</summary>\n\n```\n")
+                        .append(log).append("```\n</details>\n");
+            }
+        }
+        return b.toString();
+    }
+
+    private void openIssue(String description, boolean withLog) {
+        String title = description.isEmpty()
+                ? "Reporte Adia " + appVersionName()
+                : description.split("\n")[0];
+        if (title.length() > 90) title = title.substring(0, 90) + "…";
+        try {
+            String url = "https://github.com/" + REPORT_REPO + "/issues/new?title="
+                    + java.net.URLEncoder.encode(title, "UTF-8")
+                    + "&body=" + java.net.URLEncoder.encode(
+                            reportBody(description, withLog), "UTF-8");
+            startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(url)));
+        } catch (Exception e) {
+            snack(T("No se pudo abrir el navegador", "Could not open the browser"));
+        }
     }
 
     /** Tapa claves/tokens del texto antes de que salga del movil. */
@@ -3261,8 +3390,9 @@ public class MainActivity extends AppCompatActivity {
         new Thread(() -> {
             String body;
             try {
-                java.net.URL u = new java.net.URL(URL + "/session");
+                java.net.URL u = new java.net.URL(URL + "/api/session");
                 java.net.HttpURLConnection c = (java.net.HttpURLConnection) u.openConnection();
+                c.setRequestProperty("Authorization", basicAuth());
                 c.setConnectTimeout(5000);
                 c.setReadTimeout(8000);
                 java.util.Scanner sc = new java.util.Scanner(c.getInputStream(), "UTF-8")
@@ -3313,10 +3443,19 @@ public class MainActivity extends AppCompatActivity {
             }
             usageDlg = null;
         }
-        org.json.JSONArray arr;
+        // v2 devuelve {"data":[...], "cursor":...}; v1 devolvía un array.
+        org.json.JSONArray arr = null;
         try {
             arr = new org.json.JSONArray(body);
-        } catch (Exception e) {
+        } catch (Exception ignored) {
+        }
+        if (arr == null) {
+            try {
+                arr = new org.json.JSONObject(body).optJSONArray("data");
+            } catch (Exception ignored) {
+            }
+        }
+        if (arr == null) {
             snack(T("Respuesta rara del servidor", "Odd server answer"));
             return;
         }
@@ -3326,7 +3465,7 @@ public class MainActivity extends AppCompatActivity {
             if (o != null) rows.add(o);
         }
         java.util.Collections.sort(rows, (a, b) -> Long.compare(usageTokens(b), usageTokens(a)));
-        long tIn = 0, tOut = 0, tRe = 0;
+        long tIn = 0, tOut = 0, tRe = 0, tCache = 0;
         double tCost = 0;
         for (org.json.JSONObject o : rows) {
             org.json.JSONObject tk = o.optJSONObject("tokens");
@@ -3334,6 +3473,8 @@ public class MainActivity extends AppCompatActivity {
                 tIn += tk.optLong("input", 0);
                 tOut += tk.optLong("output", 0);
                 tRe += tk.optLong("reasoning", 0);
+                org.json.JSONObject tc = tk.optJSONObject("cache");
+                if (tc != null) tCache += tc.optLong("read", 0);
             }
             tCost += o.optDouble("cost", 0);
         }
@@ -3350,7 +3491,8 @@ public class MainActivity extends AppCompatActivity {
         TextView sub = new TextView(this);
         sub.setTextSize(12);
         sub.setText(T("Entrada ", "In ") + fmtTok(tIn) + T(" · salida ", " · out ")
-                + fmtTok(tOut) + T(" · razonamiento ", " · reasoning ") + fmtTok(tRe));
+                + fmtTok(tOut) + T(" · razonamiento ", " · reasoning ") + fmtTok(tRe)
+                + T(" · caché ", " · cache ") + fmtTok(tCache));
         root.addView(sub);
         View sep = new View(this);
         sep.setLayoutParams(new android.widget.LinearLayout.LayoutParams(
@@ -3368,6 +3510,10 @@ public class MainActivity extends AppCompatActivity {
             long tin = tk == null ? 0 : tk.optLong("input", 0);
             long tou = tk == null ? 0 : tk.optLong("output", 0);
             long tre = tk == null ? 0 : tk.optLong("reasoning", 0);
+            long tca = 0;
+            if (tk != null && tk.optJSONObject("cache") != null) {
+                tca = tk.optJSONObject("cache").optLong("read", 0);
+            }
             double cost = o.optDouble("cost", 0);
             long upd = 0;
             org.json.JSONObject tm = o.optJSONObject("time");
@@ -3386,7 +3532,8 @@ public class MainActivity extends AppCompatActivity {
             TextView ts = new TextView(this);
             ts.setTextSize(12);
             ts.setText(fmtTok(tin + tou + tre) + T(" tokens · ", " tokens · ")
-                    + fmtCost(cost) + (upd > 0 ? " · " + fmtDate(upd) : ""));
+                    + fmtCost(cost) + (tca > 0 ? T(" · caché ", " · cache ") + fmtTok(tca) : "")
+                    + (upd > 0 ? " · " + fmtDate(upd) : ""));
             android.widget.LinearLayout col = new android.widget.LinearLayout(this);
             col.setOrientation(android.widget.LinearLayout.VERTICAL);
             col.setLayoutParams(new android.widget.LinearLayout.LayoutParams(
@@ -3438,8 +3585,9 @@ public class MainActivity extends AppCompatActivity {
         snack(T("Borrando…", "Deleting…"));
         new Thread(() -> {
             try {
-                java.net.URL u = new java.net.URL(URL + "/session/" + sid);
+                java.net.URL u = new java.net.URL(URL + "/api/session/" + sid);
                 java.net.HttpURLConnection c = (java.net.HttpURLConnection) u.openConnection();
+                c.setRequestProperty("Authorization", basicAuth());
                 c.setRequestMethod("DELETE");
                 c.setConnectTimeout(5000);
                 c.setReadTimeout(8000);
@@ -3462,34 +3610,77 @@ public class MainActivity extends AppCompatActivity {
             }
             logDlg = null;
         }
-        android.widget.ScrollView sv = new android.widget.ScrollView(this);
-        sv.setLayoutParams(new android.widget.FrameLayout.LayoutParams(
-                android.widget.FrameLayout.LayoutParams.MATCH_PARENT, dp(320)));
+        final String text = AppLog.read(this);
+        String shown = text.isEmpty()
+                ? T("Todavía no hay nada en el registro.\nAbre el chat y vuelve a mirar.",
+                    "Nothing in the log yet.\nOpen the chat and look again.")
+                : text;
+
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        TextView clear = new TextView(this);
+        clear.setText(T("Limpiar registro", "Clear log"));
+        clear.setTextSize(13);
+        clear.setPadding(dp(20), dp(8), dp(20), dp(8));
+        clear.setOnClickListener(v -> new com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
+                .setTitle(T("¿Limpiar el registro?", "Clear the log?"))
+                .setPositiveButton(T("Limpiar", "Clear"), (d, w) -> {
+                    AppLog.clear(this);
+                    showLogDialog();
+                })
+                .setNegativeButton(T("Cancelar", "Cancel"), null)
+                .show());
+        box.addView(clear);
+
+        ScrollView sv = new ScrollView(this);
+        sv.setLayoutParams(new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(420)));
         TextView tv = new TextView(this);
-        tv.setText(txtLog.getText().toString());
+        tv.setText(shown);
         tv.setTypeface(android.graphics.Typeface.MONOSPACE);
-        tv.setTextSize(12);
+        tv.setTextSize(11);
         int p = dp(16);
-        tv.setPadding(p, p, p, p);
+        tv.setPadding(p, 0, p, p);
         tv.setTextIsSelectable(true);
         sv.addView(tv);
+        box.addView(sv);
+
         logDlg = new com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
                 .setTitle(T("Registro", "Log"))
-                .setView(sv)
-                .setPositiveButton(T("Copiar", "Copy"), (d, w) -> {
+                .setView(box)
+                .setPositiveButton(T("Compartir", "Share"), (d, w) -> shareLog())
+                .setNeutralButton(T("Copiar", "Copy"), (d, w) -> {
                     try {
                         ClipboardManager cm =
                                 (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
-                        cm.setPrimaryClip(ClipData.newPlainText(
-                                "opencode-log", txtLog.getText().toString()));
+                        cm.setPrimaryClip(ClipData.newPlainText("adia-log", text));
                         snack(T("Registro copiado", "Log copied"));
                     } catch (Exception e) {
                         snack(T("No se pudo copiar", "Could not copy"));
                     }
                 })
-                .setNegativeButton(T("Limpiar", "Clear"), (d, w) -> txtLog.setText(""))
-                .setNeutralButton(T("Cerrar", "Close"), null)
+                .setNegativeButton(T("Cerrar", "Close"), null)
                 .show();
+    }
+
+    /** Comparte el archivo de registro real (FileProvider). */
+    private void shareLog() {
+        try {
+            File f = AppLog.file(this);
+            if (f == null || !f.exists()) {
+                snack(T("El registro está vacío", "The log is empty"));
+                return;
+            }
+            Uri uri = androidx.core.content.FileProvider.getUriForFile(this,
+                    getPackageName() + ".fileprovider", f);
+            Intent send = new Intent(Intent.ACTION_SEND);
+            send.setType("text/plain");
+            send.putExtra(Intent.EXTRA_STREAM, uri);
+            send.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            startActivity(Intent.createChooser(send, T("Compartir registro", "Share log")));
+        } catch (Exception e) {
+            snack(T("No se pudo compartir el registro", "Could not share the log"));
+        }
     }
 
     /** Funde el splash y hace entrar el contenido desde abajo (una sola vez). */
@@ -3693,7 +3884,8 @@ private void refreshUpdateBtn() {
     /** El pendiente se deriva de la version instalada: tras instalar el APK
      *  nuevo el boton desaparece solo aunque la cache siga fresca. */
     private void applyLauncherCache(String tag, String url) {
-        String cur = UpdateCheck.appVersion(this);
+        String cur = UpdateCheck.parseVer(UpdateCheck.appVersion(this));
+        if (cur == null) cur = "";
         appUpdatePending = tag != null && !tag.isEmpty() && !cur.isEmpty()
                 && UpdateCheck.cmpVer(tag, cur) > 0 && url != null && !url.isEmpty();
         appUpdTag = appUpdatePending ? tag : "";
@@ -4479,6 +4671,7 @@ private void refreshAppUpdateBtn() {
 
     private void log(String m) {
         txtLog.append("\n" + m + "\n");
+        AppLog.line("app", m);
     }
 
     private boolean isPortOpen() {

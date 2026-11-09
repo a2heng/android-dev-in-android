@@ -204,72 +204,6 @@
     return '';
   }
 
-  /*
-   * Raiz canonica de proyectos dentro de la app. El selector v2 resuelve
-   * "path" contra la ubicacion del servidor y exige que quede dentro de ella
-   * (fs.list hace un contains). Por eso "/" y "~" fallaban: "/" apunta al
-   * sistema de archivos de Android y "~" al HOME privado, ambos fuera del
-   * workspace. Todo lo que salga del workspace se re-ancla aqui.
-   */
-  function appWorkspace() {
-    try {
-      if (window.ocConfig && ocConfig.workspaceDir) {
-        return String(ocConfig.workspaceDir() || '').replace(/\/+$/, '');
-      }
-      return appHome() + '/workspace';
-    } catch (e) {}
-    return '';
-  }
-
-  function within(path, root) {
-    if (!path || !root) return false;
-    return path === root || path.indexOf(root + '/') === 0;
-  }
-
-  function canonicalProjectPath(raw, dir) {
-    var value = String(raw == null ? '' : raw).trim();
-    if (!value || value === '.') return value;
-    var ws = appWorkspace();
-    if (!ws) return value;
-    var home = appHome();
-    if (value === '/' || value === '~' || value === '~/') return ws;
-    if (value === home) return ws;
-    if (value.charAt(0) === '~') return ws + value.slice(1);
-    if (value.charAt(0) !== '/') return value; // relativa: la resuelve el servidor
-    if (within(value, ws)) return value;
-    if (within(value, home)) {
-      var rest = value.slice(home.length).replace(/^\/+/, '');
-      return rest ? ws + '/' + rest : ws;
-    }
-    // Cualquier ruta absoluta fuera del workspace se interpreta como una
-    // ruta relativa al workspace. Asi "/", "/foo" y los enlaces viejos
-    // siguen funcionando dentro de nuestro arbol.
-    return ws + '/' + value.replace(/^\/+/, '');
-  }
-
-  /*
-   * v1 lista con GET /file?path=&directory=...; v2 con
-   * GET /api/fs/list?location[directory]=...&path=<absoluta>. Se reescribe
-   * solo "path" para no romper la ubicacion del servidor.
-   */
-  function rewritePickerPath(input) {
-    var u = parseUrl(input);
-    if (!u || u.origin !== location.origin) return input;
-    if (u.pathname !== '/file' && u.pathname !== '/api/fs/list') return input;
-    if (!u.searchParams.has('path')) return input;
-    var raw = u.searchParams.get('path') || '';
-    var mapped = canonicalProjectPath(raw, dirFromUrl(u));
-    if (mapped === raw) return input;
-    u.searchParams.set('path', mapped);
-    dbg('picker path ' + raw + ' -> ' + mapped);
-    if (typeof input === 'string' || input instanceof URL) return u.toString();
-    try {
-      return new Request(u.toString(), input);
-    } catch (e) {
-      return u.toString();
-    }
-  }
-
   function hiddenDir(entry) {
     // /find/file?dirs=true devuelve cadenas; /file devuelve objetos.
     if (typeof entry === 'string') return hiddenName(entry);
@@ -499,12 +433,6 @@
 
     var method = (init && init.method) || (input && input.method) || 'GET';
 
-    var rewritten = rewritePickerPath(input);
-    if (rewritten !== input) {
-      input = rewritten;
-      u = parseUrl(input);
-      if (!u) return nativeFetch(input, init);
-    }
     if (isMutation(u, method)) {
       clearCache();
       dbg('cache clear ' + method + ' ' + u.pathname);

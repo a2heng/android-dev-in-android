@@ -210,7 +210,7 @@
         android:visibility="gone"
         android:contentDescription="Controles"
         app:fabSize="mini"
-        app:srcCompat="@android:drawable/ic_menu_manage" />
+        app:srcCompat="@drawable/ic_tune" />
 
     <FrameLayout
         android:id="@+id/splash"
