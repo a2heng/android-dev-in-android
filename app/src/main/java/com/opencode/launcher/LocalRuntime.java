@@ -83,6 +83,12 @@ public final class LocalRuntime {
         return new File(workspaceDir(ctx), "AndroidApp");
     }
 
+    /** cwd del servidor: el proyecto de ejemplo; workspace si faltara. */
+    private static File serverCwd(Context ctx) {
+        File preset = presetProjectDir(ctx);
+        return preset.isDirectory() ? preset : workspaceDir(ctx);
+    }
+
     /** Copia el proyecto de ejemplo si aun no existe (no pisa ediciones). */
     public static void seedPresetProject(Context ctx) {
         File dest = presetProjectDir(ctx);
@@ -546,7 +552,7 @@ public final class LocalRuntime {
         cmd.add("info");
 
         ProcessBuilder pb = new ProcessBuilder(cmd);
-        pb.directory(presetProjectDir(app));
+        pb.directory(serverCwd(app));
         pb.redirectErrorStream(true);
         pb.environment().clear();
         pb.environment().putAll(env);
@@ -607,7 +613,7 @@ public final class LocalRuntime {
             Log.w(TAG, "git init del proyecto de ejemplo: " + e);
         }
         List<String> cmd = prootCmd(app, home, tmp, etc, musl, proot, env,
-                presetProjectDir(app).getAbsolutePath());
+                serverCwd(app).getAbsolutePath());
         cmd.add(bin.getAbsolutePath());
         cmd.add("serve");
         cmd.add("--hostname");
@@ -616,7 +622,7 @@ public final class LocalRuntime {
         cmd.add(Integer.toString(port));
 
         ProcessBuilder pb = new ProcessBuilder(cmd);
-        pb.directory(presetProjectDir(app));
+        pb.directory(serverCwd(app));
         pb.redirectErrorStream(true);
         pb.environment().clear();
         pb.environment().putAll(env);
