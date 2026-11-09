@@ -45,8 +45,10 @@ looks like a random build failure.
 | `Failed to find Build Tools revision 34.0.0` | init script forces 35.0.2; add `buildToolsVersion '35.0.2'` to the module |
 | `core-lambda-stubs.jar` missing | use toolchain v5+; the jar is bundled |
 | `aapt2` format/exec error | use the 16 KB aarch64 aapt2; check ABI |
-| `java.io.tmpdir ... doesn't exist` | `mkdir -p $PREFIX/tmp $PREFIX/var/tmp` |
-| `Could not resolve ...` | dependency not in offline cache; `OC_BUILD_ONLINE=1` with permission |
+| `java.io.tmpdir ... doesn't exist` | let `build.sh` use `$HOME/.cache/tmp`; do not create `$PREFIX/tmp` by hand |
+| `Could not resolve ...` | dependency not in offline cache; use `android-lib-cache`, not a raw online run |
+| `checkDebugAarMetadata` / AndroidX warning | add `android.useAndroidX=true` to `gradle.properties` |
+| duplicate `kotlin-stdlib` classes | force one stdlib version (1.8+ merges jdk7/jdk8) |
 | `Unsupported class file major version` | JDK too new/old for the AGP/Kotlin version |
 | `SDK location not found` | `local.properties` or `ANDROID_HOME` missing |
 

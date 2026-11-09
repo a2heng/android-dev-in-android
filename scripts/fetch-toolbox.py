@@ -21,6 +21,9 @@ DEFAULT_SET = [
     "bash", "coreutils", "curl", "git", "python", "python-pip", "nodejs",
     "openssh", "make", "cmake", "ninja", "pkg-config", "binutils", "clang",
     "wget", "openjdk-21",
+    # 16 KB-aligned optional build tools. aapt2 is already bundled separately;
+    # these cover AIDL projects and on-device adb without a 4 KB binary.
+    "aidl", "android-tools",
 ]
 
 
@@ -116,10 +119,13 @@ def main():
 
     all_pkgs = resolve(pkgs, roots)
     boot_pkgs = resolve(pkgs, ["apt", "dpkg"])
+    # bootstrap.txt is consumed first; its .deb files must be present in the
+    # APK too (apt/dpkg and their dependencies).
+    download_pkgs = list(dict.fromkeys(boot_pkgs + all_pkgs))
 
     os.makedirs(args.out, exist_ok=True)
     total = 0
-    for name in all_pkgs:
+    for name in download_pkgs:
         meta = pkgs[name]
         dest = os.path.join(args.out, name + ".deb")
         if os.path.isfile(dest) and os.path.getsize(dest) > 0:
@@ -133,15 +139,25 @@ def main():
             f.write(data)
         total += len(data)
 
+    # Drop old versions left by a previous mirror index. Otherwise every
+    # mirror refresh grows the APK by tens of megabytes.
+    keep = {name + ".deb" for name in download_pkgs}
+    removed = 0
+    for entry in os.listdir(args.out):
+        if entry.endswith(".deb") and entry not in keep:
+            os.remove(os.path.join(args.out, entry))
+            removed += 1
+
     with open(os.path.join(args.out, "bootstrap.txt"), "w", encoding="utf-8", newline="\n") as f:
         for name in boot_pkgs:
             f.write(name + "\n")
 
     with open(os.path.join(args.out, "packages.txt"), "w", encoding="utf-8", newline="\n") as f:
-        for name in sorted(all_pkgs):
+        for name in sorted(download_pkgs):
             f.write(f"{name}\t{pkgs[name].get('Version', '')}\n")
 
-    print(f"packages: {len(all_pkgs)}  bootstrap: {len(boot_pkgs)}  size: {total / 1048576:.1f} MiB")
+    print(f"packages: {len(all_pkgs)}  bootstrap: {len(boot_pkgs)}  "
+          f"removed: {removed}  size: {total / 1048576:.1f} MiB")
     print("out:", args.out)
 
 

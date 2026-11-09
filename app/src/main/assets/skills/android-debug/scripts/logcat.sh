@@ -6,7 +6,8 @@ set -eu
 PKG="${1:?usage: logcat.sh <package> [seconds] [activity]}"
 SECS="${2:-12}"
 ACT="${3:-}"
-ADB="$HOME/toolchain/platform-tools/adb"
+ADB="${PREFIX:-$HOME/../usr}/bin/adb"
+[ -x "$ADB" ] || ADB="$HOME/toolchain/platform-tools/adb"
 [ -x "$ADB" ] || { echo "adb not found at $ADB" >&2; exit 2; }
 
 "$ADB" devices | grep -q "device$" || {

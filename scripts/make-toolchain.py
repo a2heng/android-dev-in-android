@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 """Build assets/toolchain/toolchain.zip (offline SDK + Gradle + cache)."""
 import argparse
+import io
 import os
 import shutil
 import stat
 import subprocess
 import sys
+import tarfile
 import time
 import urllib.request
 import zipfile
@@ -55,6 +57,50 @@ def extract(zip_path, dest):
     os.makedirs(dest, exist_ok=True)
     with zipfile.ZipFile(zip_path) as z:
         z.extractall(dest)
+
+
+def verify_16kb(paths, strict=True):
+    """Check bundled 64-bit tools. strict=True fails on a 4 KB regression."""
+    checker = os.path.join(ROOT, "app", "src", "main", "assets", "skills",
+                           "android-build", "scripts", "check-16kb.py")
+    if not os.path.isfile(checker):
+        print("warning: check-16kb.py not found; skipping toolchain audit")
+        return
+    env = dict(os.environ)
+    env["ADIA_16KB_STRICT"] = "1" if strict else "0"
+    for path in paths:
+        if not os.path.isfile(path):
+            continue
+        print("16 KB audit:", os.path.relpath(path, ROOT))
+        subprocess.run([sys.executable, checker, path], check=strict, env=env)
+
+
+def deb_member(deb_path, suffix):
+    """Read one file from a .deb (ar + data.tar.xz) without dpkg."""
+    if not os.path.isfile(deb_path):
+        return None
+    with open(deb_path, "rb") as source:
+        data = source.read()
+    if data[:8] != b"!<arch>\n":
+        return None
+    pos = 8
+    while pos + 60 <= len(data):
+        header = data[pos:pos + 60]
+        pos += 60
+        name = header[:16].decode("utf-8", "replace").strip()
+        size = int(header[48:58].decode("utf-8", "replace").strip() or 0)
+        part = data[pos:pos + size]
+        pos += size
+        if pos % 2:
+            pos += 1
+        if not name.startswith("data.tar"):
+            continue
+        with tarfile.open(fileobj=io.BytesIO(part), mode="r:*") as tar:
+            for member in tar.getmembers():
+                if member.isfile() and member.name.endswith(suffix):
+                    extracted = tar.extractfile(member)
+                    return extracted.read() if extracted else None
+    return None
 
 
 def main():
@@ -121,6 +167,43 @@ def main():
         os.chmod(os.path.join(bt, "aapt2"), 0o755)
     else:
         print("warning: missing", aapt2_16k)
+
+    # Termux's aidl is dynamically linked but 16 KB aligned. The static
+    # lzhiyong aidl is still 4 KB; replace it so AIDL projects work on a
+    # 16 KB device. The toolbox installs the same binary under $PREFIX/bin.
+    aidl_deb = os.path.join(ROOT, "app", "src", "main", "assets", "toolbox",
+                            "aidl.deb")
+    aidl_data = deb_member(aidl_deb, "/bin/aidl")
+    if aidl_data:
+        aidl_path = os.path.join(bt, "aidl")
+        with open(aidl_path, "wb") as out:
+            out.write(aidl_data)
+        os.chmod(aidl_path, 0o755)
+        print("aidl: Termux 16 KB binary")
+    else:
+        print("warning: aidl.deb not found; keeping the 4 KB static aidl")
+
+    # The static adb stays in platform-tools for native shells. The toolbox
+    # also installs Termux's 16 KB adb at $PREFIX/bin/adb; android-debug
+    # prefers it when available.
+    adb_deb = os.path.join(ROOT, "app", "src", "main", "assets", "toolbox",
+                           "android-tools.deb")
+    adb_data = deb_member(adb_deb, "/bin/adb")
+    if adb_data:
+        adb_check = os.path.join(stage, ".adb-16kb")
+        with open(adb_check, "wb") as out:
+            out.write(adb_data)
+        verify_16kb([adb_check], strict=True)
+        os.remove(adb_check)
+    else:
+        print("warning: android-tools.deb not found; adb toolbox check skipped")
+
+    print("16 KB audit of critical bundled tools...")
+    verify_16kb([os.path.join(bt, "aapt2"), os.path.join(bt, "aidl")],
+                strict=True)
+    # These are optional and AGP 8.5 does not execute them in a normal build.
+    verify_16kb([os.path.join(bt, name) for name in
+                 ("aapt", "dexdump", "split-select", "zipalign")], strict=False)
 
     print("gradle...")
     gradle_dir = os.path.join(stage, "gradle")

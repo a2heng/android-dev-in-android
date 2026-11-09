@@ -7,15 +7,34 @@ PROJECT="${1:-$PWD}"
 VARIANT="${2:-debug}"
 TASK="${3:-}"
 
-: "${PREFIX:?PREFIX is not set; run this inside the app sandbox}"
 : "${HOME:?HOME is not set}"
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+
+# Resolve PREFIX instead of trusting the caller. Inside proot the sandbox
+# prefix is mounted at the Termux path; in a native shell it is the sibling
+# "usr" directory of HOME (files/home -> files/usr). Do not export the real
+# Termux path by hand in a native shell: it does not exist there.
+if [ -z "${PREFIX:-}" ] || [ ! -d "$PREFIX" ]; then
+  if [ -d /data/data/com.termux/files/usr ]; then
+    PREFIX=/data/data/com.termux/files/usr
+  elif [ -d "$HOME/../usr" ]; then
+    PREFIX="$(cd "$HOME/../usr" && pwd)"
+  else
+    echo "[android-build] cannot find the toolchain prefix (PREFIX/HOME/../usr)." >&2
+    echo "[android-build] run inside the app sandbox, or set PREFIX explicitly." >&2
+    exit 2
+  fi
+fi
+export PREFIX
+
 # The Termux JDK defaults java.io.tmpdir to $PREFIX/tmp. That directory can be
 # awkward to create inside some proot setups, so point Gradle's JVMs at the
 # app cache tmp instead (which always exists and is writable).
-GRADLE_TMP="${TMPDIR:-$HOME/.cache/tmp}"
-mkdir -p "$GRADLE_TMP" "$PREFIX/tmp" "$PREFIX/var/tmp" "$HOME/.cache" 2>/dev/null || true
+GRADLE_TMP="$HOME/.cache/tmp"
+mkdir -p "$GRADLE_TMP" "$HOME/.cache" 2>/dev/null || true
+mkdir -p "$PREFIX/tmp" "$PREFIX/var/tmp" 2>/dev/null || true
+export TMPDIR="$GRADLE_TMP"
 
 BUNDLED="$HOME/toolchain"
 SDK="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-$BUNDLED/android-sdk}}"

@@ -17,29 +17,41 @@
   `BUILD SUCCESSFUL in 26s`（增量），产物安装后正常启动。
 - 使用免费模型 `opencode/deepseek-v4.1-flash-free`，让手机内的 opencode 自己生成
   并构建 `AgentHello`，安装后显示 “Hello from opencode on-device”。
-- 内置技能：`android-build`、`android-debug`、`skill-installer`，以及项目/UI/测试/
-  发布/性能/NDK/依赖/国际化/安全/Gradle/发布/架构/网络/数据库/后台等 19 个 skill。
+- 内置技能 21 个：构建、调试、项目、UI、测试、发布、安装、性能、NDK、依赖、
+  共享库缓存、国际化、安全、Gradle、发布、架构、网络、数据库、后台、16 KB、
+  skill-installer。
 
-## 16 KB 页大小
+## 16 KB 页大小（官方建议，不是 4 KB 不可用）
 
-已用 `scripts/check-elf-align.py` 检查过当前包：
+16 KB 对齐是 Google 对新设备和 Play 新应用的**建议/要求方向**，不是“4 KB
+设备不能运行”。Adia 自身仍可在 4 KB 内核上正常构建和运行；这里做的是提前
+兼容未来的 16 KB 设备，并让 release 构建给出明确报告。
+
+已检查当前包：
 
 - opencode、musl loader、proot、libc++/libstdc++/libgcc、librg、
   libandroid-shmem：**16 KB aligned**
 - Termux 的 `libjvm.so`、`libjava.so`、`bash`、`git`、`node`、`python3`：
   **16 KB aligned**
-- 原 `lzhiyong` 的 `aapt2` / `aidl`：4 KB aligned
+- 关键构建工具：`aapt2` 为 16 KB；`aidl` 和 `adb` 预装 Termux 的
+  aarch64 版本，已复检为 **16 KB aligned**
+- 可选 legacy 工具：`aapt`、`dexdump`、`split-select`、`zipalign` 仍是
+  4 KB。AGP 8.5 正常构建不会执行它们（使用 aapt2 / zipflinger），只有在
+  16 KB 设备上手动使用这些工具时才需要从 AOSP 重新编译。
 
-已把 `aapt2` 换成 Termux Studio 的 16 KB 对齐版本（支持 SDK 35/36/37），
-重新打包后手机内构建仍成功。`aidl` 仍是 4 KB；只有使用 AIDL 的项目会受影响。
+release 构建默认对**随包分发的 64 位 native 库**做严格检查；32 位
+（`armeabi-v7a`/`x86`）会标记为 `SKIP`，不参与 16 KB 判定。遇到无法替换的
+4 KB 依赖时，可以设置 `ADIA_16KB_STRICT=0` 继续构建，并在发布说明中记录。
+这只是提前兼容 16 KB 设备；4 KB 设备仍然可以正常构建和运行。
 
-当前测试机是 4 KB 页（`getconf PAGE_SIZE` = 4096），所以还没有 16 KB 真机验证。
-建议下一步用 16 KB 页的 Android 15/16 模拟器或真机做一次完整构建。
+当前测试机是 4 KB 页（`getconf PAGE_SIZE` = 4096），所以 16 KB 仍是静态
+对齐检查；建议后续用 16 KB 页的 Android 15/16 真机做一次完整构建。
 
 检查命令：
 
 ```sh
-python scripts/check-elf-align.py app/src/main/jniLibs/arm64-v8a/*.so
+python3 app/src/main/assets/skills/android-build/scripts/check-16kb.py \
+  app/src/main/jniLibs/arm64-v8a
 ```
 
 ## 现在能做什么

@@ -1825,6 +1825,16 @@ public class MainActivity extends AppCompatActivity {
         }
 
         /**
+         * Raiz canonica de proyectos. El selector de carpetas usa esta ruta
+         * para "~" y "/" porque el resto del arbol de Android no es legible
+         * ni escribible por la app.
+         */
+        @JavascriptInterface
+        public String workspaceDir() {
+            return LocalRuntime.workspaceDir(MainActivity.this).getAbsolutePath();
+        }
+
+        /**
          * Prepara el repo git de un proyecto antes de que el servidor lo vea.
          * Devuelve la raiz del repo (o el propio directorio si no se pudo).
          */

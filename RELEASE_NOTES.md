@@ -1,53 +1,63 @@
-# Adia v0.1.0（预览版）
+# Adia v0.2.0
 
 Android Dev In Android —— 在手机上运行 opencode 和完整的 Android 构建工具链，离线优先。
 
-## 亮点
+## 本版重点
 
-- 应用名 **Adia**，包名 `com.a2heng.adia`。
-- **opencode 2.2.6**（linux-arm64-musl）直接运行在 APK 内。
-- **v2 自动登录**：通过一次性 `/auth/connect/<code>` 链接建立会话，不再手动输入密码。
-- **离线工具链**：Termux JDK 21、Android platform 35、aarch64 aapt2、Gradle 9.8.1、
-  Maven 缓存、设备内 adb。
-- **20 个内置 skill**：build、debug、project、UI、test、release、install、
-  performance、NDK、dependencies、i18n、security、Gradle、publish、
-  architecture、networking、database、background、16 KB、skill-installer。
-- **skill 可自行安装**：支持 git / zip / 本地目录。
-- **16 KB 优先**：aapt2 已换成 16 KB 对齐版本；构建后自动审计 APK，release
-  构建遇到 4 KB native 库会失败。
-- **不再申请“所有文件访问”**：workspace、toolchain、配置和 skills 全部位于
-  应用私有根目录 `/data/user/0/com.a2heng.adia/files/home`。
-- **原生 UI 汉化**：选项、状态、分享、通知均为中文；opencode Web UI 也支持中文。
+- **正式签名版**：Release 只构建 `assembleRelease`，CI 强制要求
+  `ADIA_KEYSTORE_BASE64` / `ADIA_KEY_ALIAS` / `ADIA_KEYSTORE_PASS` /
+  `ADIA_KEY_PASS`，不再回退到 debug 预览包。
+- **项目路径选择器修复**：新建项目时点 `~` 或 `/` 不再进入无法读取的
+  Android 根目录。两者都指向应用管理的规范项目根
+  `~/workspace`，后续逐级浏览也都在这个目录内完成。
+- **新 skill `android-lib-cache`**：未预装的库只下载一次，写入共享缓存
+  `~/toolchain/gradle-home` 和 Maven 布局镜像 `~/toolchain/m2`；本机其他
+  Gradle 项目、Maven、sbt、`javac`、脚本都能复用。
+- **`android-build` 更稳**：自动识别 native/proot 下的 `PREFIX`，
+  Gradle 临时目录固定到 `~/.cache/tmp`，不再手写 Termux 真实路径；
+  AndroidX/Jetifier、Kotlin stdlib 冲突、AAR metadata 等常见错误已写入
+  troubleshooting。
+- **16 KB 检查修正**：`armeabi-v7a` / `x86` 等 32 位库标记为 `SKIP`，
+  不再误报 `4KB/UNALIGNED`。只有 64 位库未对齐才会让 release 失败。
+- **预装 16 KB 工具**：`aapt2`、Termux `aidl` 和 Termux `adb` 均为 16 KB
+  对齐；`aapt`/`dexdump`/`split-select`/`zipalign` 是可选 legacy 工具，
+  AGP 8.5 正常构建不会执行。16 KB 是官方建议，4 KB 设备仍可运行。
+- **21 个内置 skill**：新增 `android-lib-cache`，并按手机上的真实构建会话
+  补强 build、project、gradle、deps、16 KB 等 skill。
 
-## 真机验证
+## 仍然保持
 
-- OPPO PKB110，Android 17（SDK 37），arm64，4 KB 内核。
-- 全新安装 → 本地解压 toolbox + toolchain，不下载工具链。
-- 手机内构建 Hello World：`BUILD SUCCESSFUL`（增量约 26 秒）。
-- 免费模型 `opencode/deepseek-v4.1-flash-free` 在手机内生成并构建应用，
-  产物安装后正常启动。
-- 对 app、opencode、proot、JDK、Termux 工具和 aapt2 做了 16 KB 静态对齐检查。
-  测试机是 4 KB 内核（`ro.boot.hardware.cpu.pagesize=4096`），暂无 16 KB 内核可测。
-
-## 已知限制
-
-- 本预览版 APK 使用 **debug 签名**，不要用于正式升级。
-- 16 KB 目前是静态检查；正式声明前需要在 16 KB 内核/设备上验证。
-- `aidl`、legacy `aapt`、`dexdump`、`split-select`、`zipalign` 和捆绑的静态
-  `adb` 仍是 4 KB 对齐；它们是可选工具。release 构建只在**随包分发的 native
-  库**为 4 KB 时失败。
-- 没有完整 NDK/CMake bundle；见 `android-ndk` skill。
-- 离线 Maven 缓存来自本项目，不是通用镜像。
-- 外部项目目前通过应用私有目录导入；SAF 导入/导出是下一步。
-- 由于执行/下载代码和侧载能力，不能上 Google Play。
+- 应用名 **Adia**，包名 `com.a2heng.adia`，opencode **2.2.6**。
+- **v2 自动登录**：一次性 `/auth/connect/<code>` 建立会话，不手输密码。
+- **离线工具链**：Termux JDK 21、Android platform 35、aarch64 aapt2、
+  Gradle 9.8.1、Maven 种子缓存、设备内 adb。
+- **16 KB 优先**：aapt2 为 16 KB 对齐；release 构建遇到 64 位 native 库
+  4 KB 对齐会失败。
+- **无“所有文件访问”权限**：workspace、toolchain、配置和 skills 全部位于
+  `/data/user/0/com.a2heng.adia/files/home`。
+- **中文原生 UI**，opencode Web UI 支持中文。
 
 ## 安装
 
 ```sh
-adb install -r adia-debug.apk
+adb install -r adia-0.2.0.apk
 ```
 
-打开 **Adia**，等待离线 toolbox/toolchain 安装完成，然后新建会话。
+打开 **Adia**，等待离线 toolbox/toolchain 就绪，然后新建会话。
+新项目建议放在 `~/workspace/<项目名>`。
+
+## 已知限制
+
+- 16 KB 仍是静态对齐检查；测试机为 4 KB 内核
+  （`ro.boot.hardware.cpu.pagesize=4096`），尚无 16 KB 内核可做硬件验证。
+  16 KB 是官方建议，不是 4 KB 不可用。
+- 可选 legacy `aapt`、`dexdump`、`split-select`、`zipalign` 仍是 4 KB；
+  AGP 8.5 正常构建不会执行它们。关键工具 `aapt2`、`aidl`、`adb` 已是
+  16 KB。
+- 没有完整 NDK/CMake bundle；见 `android-ndk` skill。
+- 离线 Maven 种子缓存来自本项目，不是通用镜像；缺失库用
+  `android-lib-cache` 下载并共享。
+- 由于执行/下载代码和侧载能力，不能上 Google Play。
 
 ## 致谢与许可
 
@@ -72,63 +82,69 @@ adb install -r adia-debug.apk
 
 ---
 
-# Adia v0.1.0 (preview) — English
+# Adia v0.2.0 — English
 
 Android Dev In Android: run opencode and a full Android build toolchain on the
 phone, offline-first.
 
 ## Highlights
 
-- App name **Adia**, package `com.a2heng.adia`.
-- **opencode 2.2.6** (`linux-arm64-musl`) running natively inside the APK.
-- **Automatic v2 login** via a one-time `/auth/connect/<code>` link; no manual
-  password entry.
+- **Signed release only**: CI builds `assembleRelease` and requires
+  `ADIA_KEYSTORE_BASE64`, `ADIA_KEY_ALIAS`, `ADIA_KEYSTORE_PASS` and
+  `ADIA_KEY_PASS`. There is no debug-preview fallback.
+- **Project picker fixed**: `~` and `/` no longer open the unreadable Android
+  root. Both resolve to the app-managed project root `~/workspace`, and every
+  deeper folder stays inside it.
+- **New `android-lib-cache` skill**: a missing library is downloaded once into
+  the shared `~/toolchain/gradle-home` cache and a Maven-layout mirror at
+  `~/toolchain/m2`. Other Gradle projects, Maven, sbt, `javac` and scripts on
+  the phone reuse the same files.
+- **More reliable `android-build`**: detects `PREFIX` in native and proot
+  shells, pins Gradle's temp dir to `~/.cache/tmp`, and documents AndroidX/
+  Jetifier, Kotlin stdlib conflicts and AAR metadata errors.
+- **16 KB checker fixed**: 32-bit ABIs (`armeabi-v7a`, `x86`) are reported as
+  `SKIP`, not `4KB/UNALIGNED`. Only misaligned 64-bit libraries fail a release.
+- **16 KB tools preinstalled**: `aapt2`, Termux `aidl` and Termux `adb` are
+  16 KB aligned. `aapt`/`dexdump`/`split-select`/`zipalign` are optional legacy
+  tools that AGP 8.5 does not execute. 16 KB is the official recommendation;
+  4 KB devices still run.
+- **21 bundled skills**: `android-lib-cache` added; build, project, gradle,
+  deps and 16 KB skills improved from a real on-device build session.
+
+## Kept from 0.1.0
+
+- App name **Adia**, package `com.a2heng.adia`, opencode **2.2.6**.
+- **Automatic v2 login** via a one-time `/auth/connect/<code>` link.
 - **Offline toolchain**: Termux JDK 21, Android platform 35, aarch64 aapt2,
-  Gradle 9.8.1, Maven cache and on-device adb.
-- **20 bundled skills**: build, debug, project, UI, test, release, install,
-  performance, NDK, dependencies, i18n, security, Gradle, publish,
-  architecture, networking, database, background, 16 KB, skill-installer.
-- **Self-installable skills** from git, zip or a local directory.
-- **16 KB first**: the bundled aapt2 is 16 KB aligned; the build skill audits
-  the APK and fails release builds on 4 KB native libraries.
-- **No `MANAGE_EXTERNAL_STORAGE`**: workspace, toolchain, config and skills live
-  under the app-private root
-  `/data/user/0/com.a2heng.adia/files/home`.
+  Gradle 9.8.1, Maven seed cache and on-device adb.
+- **16 KB first**: 16 KB-aligned aapt2; release builds fail on misaligned
+  64-bit native libraries.
+- **No `MANAGE_EXTERNAL_STORAGE`**: workspace, toolchain, config and skills
+  live under `/data/user/0/com.a2heng.adia/files/home`.
 - **Chinese native UI** plus the opencode Web UI.
-
-## Verified on-device
-
-- OPPO PKB110, Android 17 (SDK 37), arm64, 4 KB kernel.
-- Fresh install → offline toolbox + toolchain extraction (no downloads).
-- On-device Hello World build: `BUILD SUCCESSFUL` (~26 s incremental).
-- The free model `opencode/deepseek-v4.1-flash-free` generated and built an app
-  on the phone; the APK installed and launched.
-- 16 KB static alignment checked for the app, opencode, proot, JDK, Termux tools
-  and aapt2. The test device has a 4 KB kernel
-  (`ro.boot.hardware.cpu.pagesize=4096`), so no 16 KB kernel test is available.
-
-## Known limitations
-
-- This preview APK is **debug-signed**. Do not use it for production updates.
-- The 16 KB check is static on this device; verify on a 16 KB kernel/device
-  before claiming full hardware support.
-- `aidl`, legacy `aapt`, `dexdump`, `split-select`, `zipalign` and the bundled
-  static `adb` are still 4 KB aligned. They are optional; release builds fail
-  only if a **shipped** native library is 4 KB.
-- No full NDK/CMake bundle; see the `android-ndk` skill.
-- The offline Maven cache is seeded from this project, not a universal mirror.
-- External projects are imported into app-private storage; SAF import/export is
-  the next step.
-- Not eligible for Google Play due to executing/downloading code and sideload
-  capabilities.
 
 ## Install
 
 ```sh
-adb install -r adia-debug.apk
+adb install -r adia-0.2.0.apk
 ```
 
 Open **Adia**, wait for the offline toolbox/toolchain, then start a session.
+Put new projects under `~/workspace/<name>`.
+
+## Known limitations
+
+- The 16 KB check is static alignment; the test device has a 4 KB kernel
+  (`ro.boot.hardware.cpu.pagesize=4096`), so no 16 KB kernel test is available.
+  16 KB is the official recommendation; 4 KB devices still work.
+- Optional legacy `aapt`, `dexdump`, `split-select` and `zipalign` are still
+  4 KB; AGP 8.5 does not execute them. The critical `aapt2`, `aidl` and `adb`
+  are 16 KB.
+- No full NDK/CMake bundle; see the `android-ndk` skill.
+- The offline Maven seed is not a universal mirror; use `android-lib-cache`
+  for missing libraries.
+- Not eligible for Google Play due to executing/downloading code and sideload
+  capabilities.
 
 ## Credits and licenses
 

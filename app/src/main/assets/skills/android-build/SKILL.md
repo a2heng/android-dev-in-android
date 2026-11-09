@@ -66,6 +66,31 @@ Never execute `./gradlew` directly: project files live on a `noexec` mount.
 Tell the user the APK path and the build result. Do not invent a path: use the
 `APK=` line printed by the script.
 
+## Do not bypass the script
+
+The agent shell can be **native** or **proot**. `PREFIX` is only valid inside
+proot; in a native shell the real prefix is `$HOME/../usr`. The script detects
+this itself. Never export `/data/data/com.termux/files/usr` by hand in a
+native shell and never rebuild the Gradle command from scratch: that path does
+not exist outside proot and produces the "tmpdir does not exist" and
+"`PREFIX/tmp` cannot be created" failures.
+
+If the script fails, fix the **project** and re-run it. Only use
+`OC_USE_WRAPPER=1` or raw Gradle as a last resort, and keep
+`GRADLE_USER_HOME=$HOME/toolchain/gradle-home` and
+`-Djava.io.tmpdir=$HOME/.cache/tmp`.
+
+## Troubleshooting
+
+| Error | Fix |
+|---|---|
+| `checkDebugAarMetadata` / "AndroidX dependencies" | add `android.useAndroidX=true` to `gradle.properties`; add `android.enableJetifier=true` only for old support libraries |
+| duplicate `kotlin-stdlib` / `kotlin-stdlib-jdk7` classes | force one stdlib version in `configurations.all { resolutionStrategy.force ... }` |
+| `java.io.tmpdir` / `PREFIX/tmp` missing | do not create it by hand; the script uses `$HOME/.cache/tmp` |
+| `Could not resolve` a library | use `android-lib-cache`; do not switch to a raw online Gradle run |
+| `SDK location not found` | the script writes `local.properties`; do not point it at Termux's real prefix |
+| `aapt2` download / x86_64 error | the script passes the bundled arm64 aapt2 override |
+
 ## Notes and limits
 
 - SDK platform is 35 by default. For `compileSdk 36` projects, install platform

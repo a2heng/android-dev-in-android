@@ -8,7 +8,8 @@ description: Install, launch, uninstall or grant permissions to an Android app o
 ## Install with adb
 
 ```sh
-ADB=$HOME/toolchain/platform-tools/adb
+ADB="${PREFIX:-$HOME/../usr}/bin/adb"
+[ -x "$ADB" ] || ADB=$HOME/toolchain/platform-tools/adb
 $ADB install -r -t /path/to/app-debug.apk
 ```
 

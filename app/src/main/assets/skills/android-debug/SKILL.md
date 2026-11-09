@@ -5,8 +5,9 @@ description: Debug Android apps on this phone with logcat, crash/ANR analysis, i
 
 # Android Debug (on-device)
 
-Everything runs on the phone. `adb` is bundled at
-`$HOME/toolchain/platform-tools/adb`.
+Everything runs on the phone. Prefer the 16 KB Termux `adb` at
+`$PREFIX/bin/adb` (installed by the toolbox); the static
+`$HOME/toolchain/platform-tools/adb` remains as a native fallback.
 
 ## When to use
 
@@ -25,7 +26,8 @@ The cleanest way is Android's **Wireless debugging**:
 3. On the phone (in a shell):
 
 ```sh
-ADB=$HOME/toolchain/platform-tools/adb
+ADB="${PREFIX:-$HOME/../usr}/bin/adb"
+[ -x "$ADB" ] || ADB=$HOME/toolchain/platform-tools/adb
 $ADB pair 127.0.0.1:<pair-port> <6-digit-code>
 $ADB connect 127.0.0.1:<connect-port>
 $ADB devices

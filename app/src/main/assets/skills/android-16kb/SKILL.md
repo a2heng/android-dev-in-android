@@ -5,15 +5,17 @@ description: Enforce Android 16 KB page-size compatibility for apps and the on-d
 
 # Android 16 KB page size
 
-**Policy for this project: 16 KB first.** Prefer a 16 KB-aligned tool or native
-library over a 4 KB one, even if it is slightly older. If a 4 KB-only component
-is unavoidable, document it and do not claim 16 KB support.
+**Policy: follow the official recommendation, not “4 KB is forbidden”.**
+16 KB alignment is what Google recommends for new devices and what Play asks
+for new apps/updates targeting Android 15+. A 4 KB-aligned app still runs on a
+4 KB device (this phone is one). The goal is to be ready for 16 KB devices and
+to make the trade-off visible, not to claim 4 KB is broken.
 
-Google Play requires 16 KB page-size support for new apps and updates that
-target Android 15+ (the requirement started in late 2025). Release builds from
-`android-build` therefore enable `ADIA_16KB_STRICT=1` by default and fail if a
-native library is 4 KB aligned. Debug builds print the report but do not fail
-unless `ADIA_16KB_STRICT=1` is set explicitly.
+Prefer a 16 KB-aligned tool or native library when one exists. If a 4 KB-only
+component is unavoidable, document it and set `ADIA_16KB_STRICT=0` for that
+build. Release builds from `android-build` enable `ADIA_16KB_STRICT=1` by
+default (strict 64-bit check) and fail only on misaligned **64-bit** libraries;
+32-bit ABIs are skipped.
 
 ## What must be aligned
 
@@ -23,7 +25,10 @@ Every `PT_LOAD` segment of every `arm64-v8a` ELF that runs on the device:
 - native executables packed in `jniLibs` (opencode, adb, aapt2, ...)
 - toolchain binaries executed on the phone (aapt2, aidl, adb, zipalign, ...)
 
-Java/JAR/Gradle code does not have this constraint.
+Java/JAR/Gradle code does not have this constraint. **32-bit ABIs**
+(`armeabi-v7a`, `x86`) are not part of the 16 KB requirement; the checker marks
+them `SKIP`, not `4KB/UNALIGNED`. Only 64-bit ELF (`arm64-v8a`, `x86_64`)
+failures block a release.
 
 ## Audit
 
@@ -50,22 +55,28 @@ The build skill runs this automatically after `assembleDebug`. Set
 | musl loader, proot, libc++/libstdc++/libgcc, librg, libandroid-shmem | 16 KB |
 | Termux JDK (`libjvm.so`, `libjava.so`) | 16 KB |
 | Termux `bash`/`git`/`node`/`python3` | 16 KB |
-| `aapt2` (Termux Studio build) | 16 KB |
-| `aidl`, `aapt`, `dexdump`, `split-select`, `zipalign`, `adb` | 4 KB (optional tools) |
+| `aapt2` (16 KB build) | 16 KB |
+| `aidl` (Termux package, preinstalled) | 16 KB |
+| `adb` (Termux `android-tools`, preinstalled) | 16 KB |
+| `aapt`, `dexdump`, `split-select`, `zipalign` (lzhiyong static) | 4 KB, optional |
 
-`aapt2` is the critical build tool and is 16 KB. `aidl` is only used by projects
-with `.aidl` files; `adb` is only used by the debug skill; `zipalign`/`aapt`
-legacy are rarely executed by AGP 8.5.
+`make-toolchain.py` audits the critical tools (`aapt2`, `aidl`) and the Termux
+`adb` before zipping; a regression fails the toolchain build. The four 4 KB
+tools above are **not executed by AGP 8.5** in a normal build: AGP uses aapt2,
+`zipalign` is manual-only, and `aapt`/`dexdump`/`split-select` are legacy. They
+are kept for compatibility. If you need them on a 16 KB device, build them from
+AOSP with `-Wl,-z,max-page-size=16384` (aapt2/aidl/adb are already covered).
+
+Never use the 4 KB `aapt2` back; it is the one critical tool.
 
 For a 16 KB-only environment:
 
-- AIDL: install Termux's `aidl` package (16 KB) or avoid AIDL.
-- adb: install Termux `android-tools` (16 KB) inside the prefix, or use the
-  bundled 4 KB static adb only for debugging.
 - Prefer NDK r28+ with `-DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON` and
   `-Wl,-z,max-page-size=16384`.
-- Do not ship a 4 KB `.so` from a prebuilt AAR; rebuild it from source or find a
-  16 KB build.
+- Do not ship a 4 KB 64-bit `.so` from a prebuilt AAR; rebuild from source or
+  find a 16 KB build. A 32-bit `.so` is allowed but unnecessary on arm64.
+- For a 4 KB-only dependency that cannot be replaced, set
+  `ADIA_16KB_STRICT=0` and document the limitation.
 
 ## Known limits
 

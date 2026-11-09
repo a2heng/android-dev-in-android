@@ -1,9 +1,7 @@
 # Release: push a semantic tag `vX.Y.Z`.
-# `workflow_dispatch` builds without creating a Release.
-# If signing secrets are present, produces a signed release APK.
-# Otherwise produces a debug-signed preview APK (clearly labelled).
-# Secrets (optional): ADIA_KEYSTORE_BASE64, ADIA_KEY_ALIAS,
-#                     ADIA_KEYSTORE_PASS, ADIA_KEY_PASS.
+# `workflow_dispatch` builds a signed APK without creating a Release.
+# Signed release only. Required secrets:
+#   ADIA_KEYSTORE_BASE64, ADIA_KEY_ALIAS, ADIA_KEYSTORE_PASS, ADIA_KEY_PASS
 name: Release
 
 on:
@@ -20,7 +18,7 @@ concurrency:
 
 jobs:
   android:
-    name: Offline APK
+    name: Signed Android APK
     runs-on: ubuntu-latest
     timeout-minutes: 90
     steps:
@@ -32,7 +30,7 @@ jobs:
           if [ "${{ github.ref_type }}" = "tag" ]; then
             VERSION="${GITHUB_REF_NAME#v}"
           else
-            VERSION="0.0.0-dev${GITHUB_RUN_NUMBER}"
+            VERSION="0.0.0-${GITHUB_RUN_NUMBER}"
           fi
           if ! printf '%s' "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'; then
             echo "tag must look like vX.Y.Z (current: ${GITHUB_REF_NAME})" >&2
@@ -59,19 +57,24 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v6
 
-      - name: Restore keystore (optional)
-        id: signing
+      - name: Restore release keystore
         env:
           KEYSTORE_B64: ${{ secrets.ADIA_KEYSTORE_BASE64 }}
+          KEY_ALIAS: ${{ secrets.ADIA_KEY_ALIAS }}
+          KEYSTORE_PASS: ${{ secrets.ADIA_KEYSTORE_PASS }}
+          KEY_PASS: ${{ secrets.ADIA_KEY_PASS }}
         run: |
-          if [ -z "$KEYSTORE_B64" ]; then
-            echo "No ADIA_KEYSTORE_BASE64: building a debug-signed preview." >&2
-            echo "signed=0" >> "$GITHUB_OUTPUT"
-            exit 0
+          missing=""
+          [ -z "$KEYSTORE_B64" ] && missing="$missing ADIA_KEYSTORE_BASE64"
+          [ -z "$KEY_ALIAS" ] && missing="$missing ADIA_KEY_ALIAS"
+          [ -z "$KEYSTORE_PASS" ] && missing="$missing ADIA_KEYSTORE_PASS"
+          [ -z "$KEY_PASS" ] && missing="$missing ADIA_KEY_PASS"
+          if [ -n "$missing" ]; then
+            echo "Missing release signing secrets:$missing" >&2
+            exit 1
           fi
           mkdir -p "$RUNNER_TEMP/signing"
           printf '%s' "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/signing/release.jks"
-          echo "signed=1" >> "$GITHUB_OUTPUT"
 
       - name: Fetch opencode runtime
         run: python3 scripts/fetch-opencode.py --version 2.2.6
@@ -88,7 +91,6 @@ jobs:
         run: python3 scripts/make-toolchain.py
 
       - name: Build signed release
-        if: steps.signing.outputs.signed == '1'
         env:
           ADIA_KEYSTORE: ${{ runner.temp }}/signing/release.jks
           ADIA_KEY_ALIAS: ${{ secrets.ADIA_KEY_ALIAS }}
@@ -100,36 +102,24 @@ jobs:
             -PadiaVersionCode="${{ steps.version.outputs.code }}" \
             -PadiaRequireSigning=1
 
-      - name: Build debug preview
-        if: steps.signing.outputs.signed != '1'
-        run: |
-          ./gradlew :app:assembleDebug --console=plain --stacktrace --no-daemon \
-            -PadiaVersionName="${{ steps.version.outputs.name }}" \
-            -PadiaVersionCode="${{ steps.version.outputs.code }}"
-
       - name: 16 KB check
         env:
           ADIA_16KB_STRICT: "1"
         run: |
-          APK=$(ls app/build/outputs/apk/release/*.apk 2>/dev/null || ls app/build/outputs/apk/debug/*.apk)
+          APK=$(ls app/build/outputs/apk/release/*.apk | head -1)
           python3 app/src/main/assets/skills/android-build/scripts/check-16kb.py "$APK"
 
       - name: Verify signature
         run: |
           BT=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
-          APK=$(ls app/build/outputs/apk/release/*.apk 2>/dev/null || ls app/build/outputs/apk/debug/*.apk)
+          APK=$(ls app/build/outputs/apk/release/*.apk | head -1)
           "$BT/apksigner" verify --print-certs "$APK"
 
       - name: Rename and checksum
         run: |
           mkdir -p out
-          if [ "${{ steps.signing.outputs.signed }}" = "1" ]; then
-            SRC=$(ls app/build/outputs/apk/release/*.apk | head -1)
-            NAME="adia-${{ steps.version.outputs.name }}.apk"
-          else
-            SRC=$(ls app/build/outputs/apk/debug/*.apk | head -1)
-            NAME="adia-${{ steps.version.outputs.name }}-preview-debug.apk"
-          fi
+          SRC=$(ls app/build/outputs/apk/release/*.apk | head -1)
+          NAME="adia-${{ steps.version.outputs.name }}.apk"
           cp "$SRC" "out/$NAME"
           (cd out && sha256sum "$NAME" > "$NAME.sha256")
 

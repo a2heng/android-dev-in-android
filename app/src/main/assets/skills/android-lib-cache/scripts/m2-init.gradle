@@ -1,0 +1,16 @@
+// Adia shared Maven mirror for Gradle.
+// Use: gradle -I /path/to/m2-init.gradle ...
+// or copy the repositories block into settings.gradle.
+def adiaM2 = System.getenv("ADIA_M2")
+def home = System.getenv("HOME") ?: System.getProperty("user.home")
+if (!adiaM2) adiaM2 = new File(home, "toolchain/m2").absolutePath
+
+allprojects {
+    repositories {
+        maven {
+            url = uri(adiaM2)
+            // The mirror has plain jars/aars/poms copied from Gradle's cache.
+            metadataSources { mavenPom(); artifact() }
+        }
+    }
+}

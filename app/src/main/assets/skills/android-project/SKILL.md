@@ -16,10 +16,20 @@ description: Create or repair an Android Gradle project on this phone: modules, 
 The build skill forces `buildToolsVersion 35.0.2` through an init script, but
 writing it in `app/build.gradle` makes the project portable.
 
+## Where projects live
+
+Create projects under `~/workspace/<Name>`, never directly in `~` and never in
+the Android filesystem root. `~/workspace` is the app-managed project root;
+the project picker's `~` and `/` buttons both resolve there.
+
+```sh
+mkdir -p "$HOME/workspace/MyApp"
+```
+
 ## Minimal structure
 
 ```text
-MyApp/
+~/workspace/MyApp/
 ├─ settings.gradle
 ├─ build.gradle
 ├─ gradlew                  # empty placeholder is enough for the build skill
@@ -50,6 +60,15 @@ Root `build.gradle`:
 plugins { id 'com.android.application' version '8.5.2' apply false }
 ```
 
+`gradle.properties` (required for any AndroidX dependency):
+
+```properties
+android.useAndroidX=true
+android.enableJetifier=true
+org.gradle.jvmargs=-Xmx3g -XX:MaxMetaspaceSize=1g -Dfile.encoding=UTF-8
+org.gradle.daemon=false
+```
+
 `app/build.gradle`:
 
 ```groovy
@@ -77,8 +96,9 @@ android {
 1. Create the directories and files above.
 2. Build with the `android-build` skill:
    `bash ~/.config/opencode/skills/android-build/scripts/build.sh . debug`
-3. If Gradle asks for dependencies not in the cache, retry with
-   `OC_BUILD_ONLINE=1` only if the user allows network.
+3. If Gradle asks for dependencies not in the cache, use
+   `android-lib-cache` (`warm-gradle.sh`) so the download is reused by every
+   project. Ask before using mobile data.
 4. Install with the `android-install` or `android-debug` skill.
 
 ## Rules

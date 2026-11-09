@@ -4,7 +4,8 @@
 set -eu
 : "${HOME:?HOME is not set}"
 PKG="${1:?usage: crash.sh <package>}"
-ADB="$HOME/toolchain/platform-tools/adb"
+ADB="${PREFIX:-$HOME/../usr}/bin/adb"
+[ -x "$ADB" ] || ADB="$HOME/toolchain/platform-tools/adb"
 [ -x "$ADB" ] || { echo "adb not found at $ADB" >&2; exit 2; }
 
 "$ADB" devices | grep -q "device$" || {

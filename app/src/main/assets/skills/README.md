@@ -36,6 +36,7 @@ re-discovers them.
 |---|---|
 | `android-gradle` | AGP/Gradle/SDK compatibility and build errors |
 | `android-deps` | dependency resolution, offline cache, conflicts |
+| `android-lib-cache` | download once, cache missing libraries in a shared Gradle/Maven cache |
 | `android-ndk` | CMake/NDK, ABI filters, 16 KB native builds |
 | `android-database` | Room/SQLite/DataStore, migrations |
 | `android-networking` | OkHttp/Retrofit, timeouts, offline behavior |

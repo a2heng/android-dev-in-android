@@ -6,7 +6,8 @@ set -eu
 APK="${1:?usage: install-run.sh <apk> <package> [activity]}"
 PKG="${2:?usage: install-run.sh <apk> <package> [activity]}"
 ACT="${3:-}"
-ADB="$HOME/toolchain/platform-tools/adb"
+ADB="${PREFIX:-$HOME/../usr}/bin/adb"
+[ -x "$ADB" ] || ADB="$HOME/toolchain/platform-tools/adb"
 [ -x "$ADB" ] || { echo "adb not found at $ADB" >&2; exit 2; }
 
 "$ADB" devices | grep -q "device$" || {
