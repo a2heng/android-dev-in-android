@@ -22,6 +22,17 @@ location so every later project and tool on the phone works offline.
 `HOME` is the app-private root (`/data/user/0/com.a2heng.adia/files/home`),
 so these caches survive app updates and are shared by all projects.
 
+What is automatic vs opt-in:
+
+- `~/toolchain/gradle-home` is used automatically by
+  `android-build/scripts/build.sh` (`GRADLE_USER_HOME`); it is the real shared
+  cache for Gradle downloads.
+- `~/toolchain/m2` is only populated when you run `export-gradle.sh` or
+  `fetch-maven.sh`; `~/.m2/repository` only exists after `link-m2.sh`. They
+  are for Maven/sbt/javac, not required for Gradle.
+- Project `build/` and `.gradle/` are **not** caches; they are the main growth.
+  Remove them with `android-build/scripts/clean-caches.sh --builds`.
+
 Rule: never download into `./.gradle`, `./build`, or a per-project
 `mavenLocal()`. Always use the shared paths above, otherwise the next project
 downloads the same 40 MB again.

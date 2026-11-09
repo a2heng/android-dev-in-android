@@ -93,6 +93,7 @@ if [ -f "$GRADLE_MAIN" ] && [ "${OC_USE_WRAPPER:-0}" != "1" ]; then
   if [ -d "$BUNDLED/gradle-home/caches/modules-2" ]; then
     export GRADLE_USER_HOME="$BUNDLED/gradle-home"
   fi
+  echo "[android-build] cache   : ${GRADLE_USER_HOME:-$HOME/.gradle}"
   OFFLINE="--offline"
   if [ "${OC_BUILD_ONLINE:-0}" = "1" ]; then
     OFFLINE=""

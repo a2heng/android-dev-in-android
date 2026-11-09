@@ -23,6 +23,22 @@ Use this skill when the user wants to:
 - rebuild after editing Java/Kotlin/XML/resources
 - produce a debug or release APK and report its path
 
+## Cache hygiene
+
+The bundled Gradle cache lives in `$HOME/toolchain/gradle-home` and is shared
+by every project (`GRADLE_USER_HOME`); the build script prints the `cache`
+line so you can confirm it is not using `~/.gradle`. Dependencies are not the
+usual bloat: project `build/` and `.gradle/` directories are. Use:
+
+```sh
+bash <skill-dir>/scripts/clean-caches.sh            # transient files only
+bash <skill-dir>/scripts/clean-caches.sh --builds   # also workspace/*/build + .gradle
+bash <skill-dir>/scripts/clean-caches.sh --all      # also shared dependency caches
+```
+
+Adia also prunes old temp files, Gradle daemon logs and downloaded `.deb`
+files at startup. It never deletes project `build/` directories automatically.
+
 ## Prerequisites
 
 - arm64 Android device (the toolchain is arm64 only)

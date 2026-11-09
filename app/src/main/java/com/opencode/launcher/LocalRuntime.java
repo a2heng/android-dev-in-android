@@ -110,8 +110,86 @@ public final class LocalRuntime {
                 initEmptyGit(dest);
             }
         }
+        cleanManagedGit(ctx);
+        pruneTransientCaches(ctx);
         removeEmptyAncestorRepo(homeDir(ctx), dest);
         removeEmptyAncestorRepo(workspaceDir(ctx), dest);
+    }
+
+    /**
+     * Retira repos git accidentales en carpetas que no son proyectos.
+     * El caso real: opencode pide ensureProjectGit() para su proyecto global
+     * (~/toolchain) y se acaba versionando 366 MB del SDK/Gradle.
+     */
+    private static void cleanManagedGit(Context ctx) {
+        File home = homeDir(ctx);
+        deleteGit(new File(home, "toolchain"));
+        deleteGit(new File(home.getParentFile(), "usr"));
+        cleanAutoGit(new File(home, "workspace"));
+        cleanAutoGit(home);
+        cleanAutoGit(new File(home, "projects"));
+        cleanAutoGit(new File(home, ".config"));
+        cleanAutoGit(new File(home, ".local"));
+    }
+
+    /**
+     * Limpieza segura al arrancar: temporales viejos, logs de Gradle y
+     * .deb descargados. No toca caches compartidas ni builds de proyectos.
+     */
+    private static void pruneTransientCaches(Context ctx) {
+        File home = homeDir(ctx);
+        long cutoff = System.currentTimeMillis() - 7L * 24 * 3600 * 1000;
+        pruneOlder(new File(home, ".cache/tmp"), cutoff);
+        pruneOlder(new File(home, ".local/share/opencode/log"), cutoff);
+        pruneOlder(new File(home, "toolchain/gradle-home/daemon"), cutoff);
+        File archives = new File(home.getParentFile(), "usr/var/cache/apt/archives");
+        File[] debs = archives.listFiles();
+        if (debs != null) {
+            for (File f : debs) {
+                if (f.isFile() && f.getName().endsWith(".deb")) f.delete();
+            }
+        }
+        deleteTree(new File(home, "toolchain.tmp"));
+    }
+
+    private static void pruneOlder(File dir, long cutoff) {
+        File[] kids = dir.listFiles();
+        if (kids == null) return;
+        for (File f : kids) {
+            if (f.isDirectory()) {
+                pruneOlder(f, cutoff);
+                String[] left = f.list();
+                if (left != null && left.length == 0) f.delete();
+            } else if (f.lastModified() < cutoff) {
+                f.delete();
+            }
+        }
+    }
+
+    private static void deleteGit(File dir) {
+        File git = new File(dir, ".git");
+        if (!git.isDirectory()) return;
+        deleteTree(git);
+        Log.i(TAG, "repo accidental retirado: " + git);
+    }
+
+    /** Borra .git vacio o creado por nuestro commit automatico. */
+    private static void cleanAutoGit(File dir) {
+        File git = new File(dir, ".git");
+        if (!git.isDirectory()) return;
+        boolean auto = !hasGitCommit(dir);
+        if (!auto) {
+            try {
+                String msg = new String(Files.readAllBytes(
+                        new File(git, "COMMIT_EDITMSG").toPath()), StandardCharsets.UTF_8);
+                auto = msg.startsWith("Adia project:");
+            } catch (Exception ignored) {
+            }
+        }
+        if (auto) {
+            deleteTree(git);
+            Log.i(TAG, "repo automatico retirado: " + git);
+        }
     }
 
     /**
@@ -858,20 +936,18 @@ public final class LocalRuntime {
         String path = canonical(dir);
         String homePath = canonical(homeDir(app));
         String workspacePath = canonical(workspaceDir(app));
-        // HOME, workspace y sus ancestros nunca son proyectos: un repo ahi
-        // convertiria todas las carpetas de dentro en el mismo proyecto.
+        // Solo los proyectos dentro de workspace/ reciben git automatico.
+        // Nunca HOME, toolchain, usr, .config, etc.
         if ("/".equals(path) || "/sdcard".equals(path)
                 || "/storage/emulated/0".equals(path)
-                || path.equals(homePath) || path.equals(workspacePath)
-                || homePath.startsWith(path + File.separator)
-                || workspacePath.startsWith(path + File.separator)) {
-            Log.w(TAG, "no se inicializa git en raiz compartida " + path);
+                || path.equals(workspacePath)
+                || !path.startsWith(workspacePath + File.separator)) {
+            Log.i(TAG, "git solo dentro de workspace: " + path);
             return path;
         }
         String root = projectRoot(app, dirPath);
         String rootPath = canonical(new File(root));
-        if (!rootPath.equals(homePath) && !rootPath.equals(workspacePath)
-                && new File(root, ".git").exists()) {
+        if (!rootPath.equals(homePath) && new File(root, ".git").exists()) {
             rememberProject(app, root);
             final File rootDir = new File(root);
             new Thread(() -> commitProject(app, rootDir), "project-commit").start();
@@ -880,8 +956,7 @@ public final class LocalRuntime {
         synchronized (GIT_LOCK) {
             root = projectRoot(app, dirPath);
             rootPath = canonical(new File(root));
-            if (!rootPath.equals(homePath) && !rootPath.equals(workspacePath)
-                    && new File(root, ".git").exists()) {
+            if (!rootPath.equals(homePath) && new File(root, ".git").exists()) {
                 rememberProject(app, root);
                 return root;
             }

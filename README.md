@@ -71,6 +71,30 @@ python3 app/src/main/assets/skills/android-build/scripts/check-16kb.py \
 - **可扩展**：保留上游的 Termux 风格 toolbox、`pkg/apt`、设备 API（剪贴板、Toast、
   振动、Wi-Fi 信息等）。
 
+## 存储与清理
+
+- APK 约 742 MB，其中 `toolchain.zip`（326 MB）和 toolbox 的 `.deb`（279 MB）
+  本身已经是压缩格式，再压收益很小。首次启动会把它们展开成工作副本：
+  `~/toolchain` 约 443 MB（清理掉误建的 `.git` 后）、`files/usr` 约 1.1 GB。
+  APK 里没有第二份 zip 副本；`ToolchainInstaller` 直接解到 `toolchain.tmp`，
+  成功后改名并写 `.installed`，不会重复解压。
+- **Gradle 共享缓存**：`~/toolchain/gradle-home` 就是 `GRADLE_USER_HOME`，
+  所有项目共用；不会用到 `~/.gradle`。`~/toolchain/m2` 只在运行
+  `export-gradle.sh` / `fetch-maven.sh` 后才会有内容，`~/.m2` 也只是
+  `link-m2.sh` 的可选软链。
+- **主要膨胀来源**是每个项目的 `build/` 和 `.gradle/`，以及旧的 Gradle
+  daemon 日志。用内置脚本清理：
+
+  ```sh
+  bash ~/.config/opencode/skills/android-build/scripts/clean-caches.sh
+  bash ~/.config/opencode/skills/android-build/scripts/clean-caches.sh --builds
+  bash ~/.config/opencode/skills/android-build/scripts/clean-caches.sh --all
+  ```
+
+  不带参数只删临时文件；`--builds` 再删 `~/workspace/*/build` 和 `.gradle`；
+  `--all` 连共享依赖缓存一起删（下次构建重新下载）。Adia 启动时也会自动
+  清理旧的临时文件、Gradle daemon 日志和已下载的 `.deb`。
+
 ## 目录结构
 
 ```text
