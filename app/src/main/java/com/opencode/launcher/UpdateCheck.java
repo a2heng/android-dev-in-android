@@ -1,0 +1,192 @@
+package com.opencode.launcher;
+
+import android.content.Context;
+import android.content.SharedPreferences;
+import org.json.JSONArray;
+import org.json.JSONObject;
+
+/** Chequeos de update que valen con y sin UI (actividad y receptor de alarma).
+ *  Sin dependencias nuevas: HttpURLConnection + org.json del framework. */
+public class UpdateCheck {
+    /** Repo donde se publican los APK del launcher (releases con .apk). */
+    public static final String LAUNCHER_REPO = "a2heng/android-dev-in-android";
+    /** Repo del binario opencode (mismo que usa la actividad). */
+    public static final String OPENCODE_REPO = "anomalyco/opencode";
+
+    static String fetchJson(String url) {
+        try {
+            java.net.HttpURLConnection c = (java.net.HttpURLConnection)
+                    new java.net.URL(url).openConnection();
+            c.setRequestProperty("User-Agent", "adia");
+            c.setRequestProperty("Accept", "application/vnd.github+json");
+            c.setConnectTimeout(10000);
+            c.setReadTimeout(10000);
+            StringBuilder sb = new StringBuilder();
+            try (java.io.BufferedReader br = new java.io.BufferedReader(
+                    new java.io.InputStreamReader(c.getInputStream()))) {
+                String line;
+                while ((line = br.readLine()) != null) sb.append(line);
+            }
+            return sb.toString();
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    /** Primera "X.Y[.Z]" del texto; null si no hay. */
+    public static String parseVer(String s) {
+        if (s == null) return null;
+        java.util.regex.Matcher m =
+                java.util.regex.Pattern.compile("(\\d+\\.\\d+(?:\\.\\d+)?)").matcher(s);
+        return m.find() ? m.group(1) : null;
+    }
+
+    /** Compara versiones: >0 si a es mayor, 0 iguales, <0 si menor. */
+    public static int cmpVer(String a, String b) {
+        try {
+            String[] pa = a.split("\\."), pb = b.split("\\.");
+            for (int i = 0; i < Math.max(pa.length, pb.length); i++) {
+                int x = i < pa.length ? Integer.parseInt(pa[i]) : 0;
+                int y = i < pb.length ? Integer.parseInt(pb[i]) : 0;
+                if (x != y) return x - y;
+            }
+        } catch (Exception ignored) {
+        }
+        return 0;
+    }
+
+    /** Canal de releases del launcher: la v1 sigue la rama 4.x y la v2 la 5.x. */
+    static String launcherChannel() {
+        return BuildConfig.V2 ? "v5." : "v4.";
+    }
+
+    /** Mayor del runtime opencode que usa esta app: 1.x en v1, 2.x en v2. */
+    static int runtimeMajor() {
+        return BuildConfig.V2 ? 2 : 1;
+    }
+
+    /** Release mas nueva del runtime dentro de su rama (1.x o 2.x). */
+    static JSONObject runtimeRelease() {
+        String j = fetchJson("https://api.github.com/repos/" + OPENCODE_REPO
+                + "/releases?per_page=100");
+        if (j == null) return null;
+        try {
+            JSONArray list = new JSONArray(j);
+            for (int i = 0; i < list.length(); i++) {
+                JSONObject o = list.optJSONObject(i);
+                if (o == null || o.optBoolean("draft") || o.optBoolean("prerelease")) continue;
+                String tag = parseVer(o.optString("tag_name", ""));
+                if (tag == null) continue;
+                if (Integer.parseInt(tag.split("\\.")[0]) != runtimeMajor()) continue;
+                return o;
+            }
+        } catch (Exception ignored) {
+        }
+        return null;
+    }
+
+    public static final class RuntimeAsset {
+        public final String version;
+        public final String name;
+        public final String url;
+        public final String sha256;
+        public final long size;
+
+        RuntimeAsset(String version, String name, String url, String sha256, long size) {
+            this.version = version;
+            this.name = name;
+            this.url = url;
+            this.sha256 = sha256;
+            this.size = size;
+        }
+    }
+
+    public static RuntimeAsset opencodeRuntimeAsset() {
+        JSONObject o = runtimeRelease();
+        if (o == null) return null;
+        try {
+            String tag = parseVer(o.optString("tag_name", ""));
+            if (tag == null) return null;
+            JSONArray assets = o.optJSONArray("assets");
+            if (assets == null) return null;
+            for (int i = 0; i < assets.length(); i++) {
+                JSONObject a = assets.optJSONObject(i);
+                if (a == null) continue;
+                String name = a.optString("name", "");
+                if (!name.equals("opencode-linux-arm64-musl.tar.gz")) continue;
+                String url = a.optString("browser_download_url", "");
+                String digest = a.optString("digest", "");
+                if (digest.startsWith("sha256:")) digest = digest.substring(7);
+                long size = a.optLong("size", 0);
+                if (url.isEmpty() || digest.isEmpty() || size <= 0) return null;
+                return new RuntimeAsset(tag, name, url, digest, size);
+            }
+        } catch (Exception e) {
+            return null;
+        }
+        return null;
+    }
+
+    /** Ultimo tag del binario opencode de esta rama ("X.Y.Z" o null). */
+    public static String latestOpencode() {
+        JSONObject o = runtimeRelease();
+        if (o == null) return null;
+        try {
+            return parseVer(o.optString("tag_name", ""));
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    /** Release del launcher de este canal: [tag, urlApk] o null.
+     *  Sin .apk no hay nada que instalar. */
+    public static String[] launcherRelease() {
+        String j = fetchJson("https://api.github.com/repos/" + LAUNCHER_REPO
+                + "/releases?per_page=30");
+        if (j == null) return null;
+        try {
+            JSONArray list = new JSONArray(j);
+            for (int i = 0; i < list.length(); i++) {
+                JSONObject o = list.optJSONObject(i);
+                if (o == null || o.optBoolean("draft") || o.optBoolean("prerelease")) continue;
+                String rawTag = o.optString("tag_name", "");
+                if (!rawTag.startsWith(launcherChannel())) continue;
+                String tag = parseVer(rawTag);
+                if (tag == null) continue;
+                String apk = null;
+                JSONArray assets = o.optJSONArray("assets");
+                if (assets != null) {
+                    for (int k = 0; k < assets.length(); k++) {
+                        JSONObject a = assets.optJSONObject(k);
+                        if (a == null) continue;
+                        String name = a.optString("name", "");
+                        String url = a.optString("browser_download_url", "");
+                        if (name.endsWith(".apk") && !url.isEmpty()) {
+                            apk = url;
+                            break;
+                        }
+                    }
+                }
+                if (apk != null) return new String[]{tag, apk};
+            }
+        } catch (Exception e) {
+            return null;
+        }
+        return null;
+    }
+
+    /** versionName de esta APK ("" si no se puede leer). */
+    public static String appVersion(Context ctx) {
+        try {
+            String v = ctx.getPackageManager()
+                    .getPackageInfo(ctx.getPackageName(), 0).versionName;
+            return v != null ? v : "";
+        } catch (Exception e) {
+            return "";
+        }
+    }
+
+    static SharedPreferences p(Context c) {
+        return c.getSharedPreferences("app", Context.MODE_PRIVATE);
+    }
+}

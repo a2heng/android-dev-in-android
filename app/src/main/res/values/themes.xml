@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="AppTheme" parent="Theme.Material3.DayNight.NoActionBar">
+        <item name="android:statusBarColor">?attr/colorSurface</item>
+        <item name="android:windowLightStatusBar">?attr/isLightTheme</item>
+        <!-- Fondo oscuro desde el primer fotograma: sin fogonazo blanco al abrir. -->
+        <item name="android:windowBackground">@color/splash_bg</item>
+        <!-- Splash del sistema (Android 12+): mismo fondo + icono, enlaza con el splash interno. -->
+        <item name="android:windowSplashScreenBackground">@color/splash_bg</item>
+        <item name="android:windowSplashScreenAnimatedIcon">@drawable/ic_launcher_foreground</item>
+        <item name="android:windowSplashScreenAnimationDuration">600</item>
+
+        <!-- Paleta un poco mas viva que el morado por defecto de Material3. -->
+        <item name="colorPrimary">@color/accent</item>
+        <item name="colorOnPrimary">#FFFFFF</item>
+        <item name="colorPrimaryContainer">@color/accent_container</item>
+        <item name="colorOnPrimaryContainer">@color/accent_on_container</item>
+        <item name="colorSecondary">@color/accent_2</item>
+        <item name="colorOnSecondary">#FFFFFF</item>
+
+        <item name="materialAlertDialogTheme">@style/AppDialogTheme</item>
+    </style>
+
+    <style name="AppDialogTheme" parent="ThemeOverlay.Material3.MaterialAlertDialog">
+        <item name="shapeAppearanceOverlay">@style/AppDialogShape</item>
+        <item name="backgroundTint">?attr/colorSurface</item>
+    </style>
+
+    <style name="AppDialogShape">
+        <item name="cornerFamily">rounded</item>
+        <item name="cornerSize">28dp</item>
+    </style>
+</resources>

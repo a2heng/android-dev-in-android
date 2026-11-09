@@ -1,0 +1,65 @@
+[submodule "reference/opencode-android"]
+	path = reference/opencode-android
+	url = https://github.com/Dajeovv/opencode-android.git
+	branch = main
+	shallow = true
+
+[submodule "reference/opencode"]
+	path = reference/opencode
+	url = https://github.com/anomalyco/opencode.git
+	branch = dev
+	shallow = true
+
+[submodule "reference/CodeOnTheGo"]
+	path = reference/CodeOnTheGo
+	url = https://github.com/appdevforall/CodeOnTheGo.git
+	branch = stage
+	shallow = true
+
+[submodule "reference/AndroidIDE"]
+	path = reference/AndroidIDE
+	url = https://github.com/AndroidIDEOfficial/AndroidIDE.git
+	branch = dev
+	shallow = true
+
+[submodule "reference/termux-app"]
+	path = reference/termux-app
+	url = https://github.com/termux/termux-app.git
+	branch = master
+	shallow = true
+
+[submodule "reference/proot-distro"]
+	path = reference/proot-distro
+	url = https://github.com/termux/proot-distro.git
+	branch = master
+	shallow = true
+
+[submodule "reference/vexel"]
+	path = reference/vexel
+	url = https://github.com/CrimsonCurious/vexel.git
+	branch = main
+	shallow = true
+
+[submodule "reference/termux-android-studio"]
+	path = reference/termux-android-studio
+	url = https://github.com/poordevcode/termux-android-studio.git
+	branch = main
+	shallow = true
+
+[submodule "reference/opencode-termux-native"]
+	path = reference/opencode-termux-native
+	url = https://github.com/Thr45hx/opencode-termux-native.git
+	branch = main
+	shallow = true
+
+[submodule "reference/opencode-android-apk"]
+	path = reference/opencode-android-apk
+	url = https://github.com/Zar-Manah/opencode-android-apk.git
+	branch = main
+	shallow = true
+
+[submodule "reference/android-sdk-tools"]
+	path = reference/android-sdk-tools
+	url = https://github.com/lzhiyong/android-sdk-tools.git
+	branch = master
+	shallow = true

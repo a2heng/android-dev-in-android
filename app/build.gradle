@@ -1,0 +1,110 @@
+plugins {
+    id 'com.android.application'
+}
+
+// CI passes -PadiaVersionName / -PadiaVersionCode / -PadiaRequireSigning.
+def adiaVersionCode = (findProperty("adiaVersionCode") ?: "1").toInteger()
+def adiaVersionName = findProperty("adiaVersionName") ?: "0.1.0-adia"
+def adiaRequireSigning = findProperty("adiaRequireSigning") == "1"
+
+android {
+    namespace 'com.opencode.launcher'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId "com.a2heng.adia"
+        minSdk 26
+        targetSdk 34
+        versionCode adiaVersionCode
+        versionName adiaVersionName
+        buildConfigField "int", "SERVER_PORT", "4096"
+        // Version del binario empaquetado en jniLibs. Actualizarla al cambiarlo.
+        buildConfigField "String", "OPENCODE_VERSION", "\"2.2.6\""
+        // v1: canal 4.x del launcher y runtime opencode 1.x.
+        buildConfigField "boolean", "V2", "false"
+        ndk {
+            abiFilters 'arm64-v8a'
+        }
+    }
+
+    // Firma release: CI usa variables de entorno; local puede usar
+    // keystore.properties (no versionado). Sin ninguno, debug sigue compilando.
+    def keystoreProps = new Properties()
+    def keystoreFile = rootProject.file("keystore.properties")
+    if (keystoreFile.exists()) keystoreProps.load(new FileInputStream(keystoreFile))
+
+    def envKeystore = System.getenv("ADIA_KEYSTORE")
+    def envStorePass = System.getenv("ADIA_KEYSTORE_PASS")
+    def envAlias = System.getenv("ADIA_KEY_ALIAS")
+    def envKeyPass = System.getenv("ADIA_KEY_PASS")
+    def hasEnvSigning = envKeystore != null && envAlias != null
+    def requireSigning = adiaRequireSigning
+    if (requireSigning && !hasEnvSigning && !keystoreFile.exists()) {
+        throw new GradleException(
+            "Release signing is required: set ADIA_KEYSTORE/ADIA_KEY_ALIAS/" +
+            "ADIA_KEYSTORE_PASS/ADIA_KEY_PASS or provide keystore.properties")
+    }
+
+    signingConfigs {
+        release {
+            if (hasEnvSigning) {
+                storeFile file(envKeystore)
+                storePassword envStorePass
+                keyAlias envAlias
+                keyPassword envKeyPass
+            } else if (keystoreFile.exists()) {
+                storeFile rootProject.file(keystoreProps['storeFile'])
+                storePassword keystoreProps['storePassword']
+                keyAlias keystoreProps['keyAlias']
+                keyPassword keystoreProps['keyPassword']
+            }
+        }
+    }
+
+    buildFeatures {
+        buildConfig true
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            signingConfig signingConfigs.release
+        }
+        // App 4.0.x (Next): runtime embebido, sin Termux, con paquete aparte.
+        // Se firma con la clave de release.
+        beta {
+            initWith release
+            matchingFallbacks = ['release']
+            applicationIdSuffix ".beta"
+            versionNameSuffix "-beta"
+            buildConfigField "int", "SERVER_PORT", "4098"
+            signingConfig signingConfigs.release
+        }
+        debug {
+            minifyEnabled false
+            applicationIdSuffix ".debug"
+            versionNameSuffix "-debug"
+            buildConfigField "int", "SERVER_PORT", "4098"
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    packagingOptions {
+        jniLibs {
+            useLegacyPackaging = true
+            keepDebugSymbols += ['**/*.so']
+        }
+    }
+}
+
+dependencies {
+    implementation 'androidx.appcompat:appcompat:1.8.0'
+    implementation 'com.google.android.material:material:1.12.0'
+    // Descompresion xz en Java: Android no trae el binario xz y el tar de
+    // Toybox lo necesita para los .deb de Termux.
+    implementation 'org.tukaani:xz:1.10'
+}

@@ -1,0 +1,11 @@
+# Normalize line endings; keep binary artifacts untouched.
+* text=auto
+# On-device shell scripts must keep LF: CRLF makes bash fail on Android.
+*.sh text eol=lf
+app/src/main/assets/skills/** text eol=lf
+.gitmodules text eol=lf
+*.apk binary
+*.png binary
+*.jks binary
+app/src/main/jniLibs/**/libocshell.so -text
+app/src/main/jniLibs/**/libgit.so -text

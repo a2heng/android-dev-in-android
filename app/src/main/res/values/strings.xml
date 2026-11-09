@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Adia</string>
+    <string name="log_title">Registro</string>
+    <string name="clear">Limpiar</string>
+</resources>

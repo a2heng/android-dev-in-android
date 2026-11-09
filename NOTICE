@@ -1,0 +1,53 @@
+# NOTICE
+
+Adia — Android Dev In Android
+Copyright (c) 2026 Dajeovv (base launcher)
+Copyright (c) 2026 Adia contributors
+
+This product includes software from the projects below. The full license texts
+are in `LICENSES/`; the summary and source locations are in
+`THIRD_PARTY_LICENSES.md`.
+
+## Base launcher
+
+The launcher is derived from
+[Dajeovv/opencode-android](https://github.com/Dajeovv/opencode-android),
+licensed under the MIT License. The original copyright notice is retained in
+`LICENSE`.
+
+## Bundled native binaries (`app/src/main/jniLibs/arm64-v8a`)
+
+| File | Component | License | Source |
+|---|---|---|---|
+| `libproot.so`, `libproot_loader.so` | proot | GPL-2.0 | https://github.com/termux/proot |
+| `libtalloc.so` | talloc | LGPL-3.0+ | https://talloc.samba.org/ |
+| `libstdcxx.so`, `libgcc_s.so` | GCC runtime | GPL-3.0 with GCC runtime exception | https://gcc.gnu.org/ |
+| `libc++_shared.so` | LLVM libc++ | Apache-2.0 with LLVM exception | https://libcxx.llvm.org/ |
+| `libld_musl.so` | musl | MIT | https://musl.libc.org/ |
+| `librg.so` | ripgrep | MIT / Unlicense | https://github.com/BurntSushi/ripgrep |
+| `libandroid-shmem.so` | Termux libandroid-shmem | see Termux source | https://github.com/termux/libandroid-shmem |
+
+`libgit.so`, `libocshell.so` and `libtagfix.so` are small launcher scripts
+written for this project (MIT).
+
+## Runtime-downloaded / generated components
+
+The release APK may include or download Termux packages, OpenJDK, Android SDK
+platform/build-tools, Gradle and opencode. They are not committed to this
+source tree. Their licenses are listed in `THIRD_PARTY_LICENSES.md`; the
+release build publishes a source offer pointing at the exact upstream versions.
+
+## GPL/LGPL source offer
+
+For the GPL/LGPL binaries distributed in a release APK, the corresponding
+source is available from the upstream projects listed above, and from the
+Termux package repository at https://packages.termux.dev for the exact package
+versions recorded in the APK's toolbox manifest. If a release is distributed
+without source access, contact the maintainers to obtain the source.
+
+## Trademarks
+
+Android is a trademark of Google LLC. Termux is a project of the Termux
+community. opencode is a project of Anomaly. Adia is not affiliated with or
+endorsed by any of them. The Adia icon is an original phone/code glyph, not the
+opencode logo.
