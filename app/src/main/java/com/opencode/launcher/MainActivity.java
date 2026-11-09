@@ -1861,20 +1861,6 @@ public class MainActivity extends AppCompatActivity {
             return LocalRuntime.homeDir(MainActivity.this).getAbsolutePath();
         }
 
-        /**
-         * Prepara el repo git de un proyecto antes de que el servidor lo vea.
-         * Devuelve la raiz del repo (o el propio directorio si no se pudo).
-         */
-        @JavascriptInterface
-        public String ensureProjectGit(String dir) {
-            try {
-                return LocalRuntime.ensureProjectGit(MainActivity.this, dir);
-            } catch (Exception e) {
-                Log.w("OpenCode", "ensureProjectGit: " + e);
-                return dir == null ? "" : dir;
-            }
-        }
-
         /** La SPA ya pinto contenido real: se puede retirar el splash. */
         @JavascriptInterface
         public void uiReady() {

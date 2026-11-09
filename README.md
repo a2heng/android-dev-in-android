@@ -60,8 +60,8 @@ python3 app/src/main/assets/skills/android-build/scripts/check-16kb.py \
   分发，WebView 打开本地 Web UI。不需要 Termux、不需要 root。
 - **文件分享（0.3.0）**：悬浮菜单 → **Archivos** 浏览 `~` 下的文件和文件夹；
   文件可分享给其他应用或保存到手机，文件夹会先打成 ZIP 再分享/保存。
-- **预置 Android 项目**：首次启动会创建 `~/workspace/AndroidApp`（Java、
-  AGP 8.5.2、SDK 35、无外部依赖），打开即可构建，不需要再新建项目。
+- **默认 Home 项目**：打开就是应用私有 HOME，不预置示例项目，也不会自动
+  创建 git 仓库；需要 Android 项目时让 agent 用 `android-project` skill 生成。
 - **端侧构建 Android**：Termux 的 `openjdk-21` + Android platform 35 +
   aarch64 `aapt2` + Gradle，直接在手机上执行 `assembleDebug`。
 - **离线优先**：工具链、JDK 的 `.deb`、Gradle 发行版和常用 Maven 缓存都可以打进

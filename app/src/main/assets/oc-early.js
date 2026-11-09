@@ -8,12 +8,7 @@
  *     conectados necesitan sus modelos: el resto conserva sus metadatos
  *     (el dialogo de conexion usa id/nombre, no los modelos).
  *
- *  2. Antes de que una peticion con "directory" llegue al servidor, crea el
- *     repo git de ese proyecto si falta. Sin .git, upstream resuelve el
- *     worktree como "/" y el watcher recorre todo el sistema de archivos.
- *     El puente ocConfig lo hace con el git nativo del APK.
- *
- *  3. El dialogo "Add project" empieza en el home privado de la app, que no
+ *  2. El dialogo "Add project" empieza en el home privado de la app, que no
  *     tiene carpetas de usuario. Con root, el APK monta /storage/emulated/0
  *     en HOME/sdcard (bind mount) y se inyectan sus carpetas como
  *     "sdcard/<nombre>/" para elegir una directamente. Sin root se usa el
@@ -32,7 +27,6 @@
   var PROVIDER_TTL = 10 * 60 * 1000;
   var cache = Object.create(null);
   var inflight = Object.create(null);
-  var ensured = Object.create(null);
   var generation = 0;
 
   function dbg(msg) {
@@ -88,22 +82,6 @@
     if (!d) d = u.searchParams.get('location[directory]');
     if (!d) d = u.searchParams.get('location%5Bdirectory%5D');
     return d || '';
-  }
-
-  function ensureProject(dir) {
-    if (!dir) return '';
-    if (ensured[dir] !== undefined) return ensured[dir];
-    var root = dir;
-    try {
-      if (window.ocConfig && ocConfig.ensureProjectGit) {
-        root = ocConfig.ensureProjectGit(dir) || dir;
-      }
-    } catch (e) {
-      dbg('git error ' + dir + ': ' + e);
-    }
-    ensured[dir] = root;
-    dbg('project ' + dir + ' -> ' + root);
-    return root;
   }
 
   function clearCache() {
@@ -440,7 +418,6 @@
     }
 
     var dir = dirFromUrl(u);
-    ensureProject(dir);
 
     var synth = syntheticFileList(u, method);
     if (synth) return synth;
