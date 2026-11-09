@@ -12,6 +12,7 @@ import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
 import android.webkit.MimeTypeMap;
+import android.widget.EditText;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
@@ -19,6 +20,7 @@ import android.widget.TextView;
 
 import androidx.core.content.FileProvider;
 
+import com.google.android.material.bottomsheet.BottomSheetBehavior;
 import com.google.android.material.bottomsheet.BottomSheetDialog;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 
@@ -89,7 +91,17 @@ public class FilesSheet {
         }
         dialog = new BottomSheetDialog(activity);
         dialog.setContentView(build());
+        dialog.setCanceledOnTouchOutside(true);
         dialog.show();
+        // La lista se desplaza dentro de la hoja: arrastrar la hoja hacia
+        // abajo no debe cerrarla ni moverla (antes competia con el scroll).
+        try {
+            BottomSheetBehavior<?> behavior = dialog.getBehavior();
+            behavior.setDraggable(false);
+            behavior.setSkipCollapsed(true);
+            behavior.setState(BottomSheetBehavior.STATE_EXPANDED);
+        } catch (Exception ignored) {
+        }
     }
 
     private View build() {
@@ -123,6 +135,8 @@ public class FilesSheet {
                 if (parent != null) show(parent);
             }));
         }
+        bar.addView(action(t.apply("Nueva carpeta", "New folder"),
+                this::newFolder));
         bar.addView(action(t.apply("Compartir carpeta", "Share folder"),
                 () -> confirmShare(current)));
         root.addView(bar);
@@ -213,23 +227,50 @@ public class FilesSheet {
         col.addView(sub);
         row.addView(col);
 
-        ImageView share = new ImageView(activity);
-        share.setImageResource(R.drawable.ic_share);
-        share.setColorFilter(secondaryColor());
-        share.setPadding(dp(8), dp(8), dp(8), dp(8));
-        TypedValue ripple = new TypedValue();
-        activity.getTheme().resolveAttribute(
-                android.R.attr.selectableItemBackgroundBorderless, ripple, true);
-        share.setBackgroundResource(ripple.resourceId);
-        share.setContentDescription(t.apply("Compartir", "Share"));
-        share.setOnClickListener(v -> actions(f));
-        row.addView(share, new LinearLayout.LayoutParams(dp(40), dp(40)));
-
+        // Sin boton de compartir: se comparte con una pulsacion larga.
         row.setOnClickListener(v -> {
             if (f.isDirectory()) show(f);
             else actions(f);
         });
+        row.setOnLongClickListener(v -> {
+            actions(f);
+            return true;
+        });
         return row;
+    }
+
+    /** Crea una carpeta dentro de la carpeta actual. */
+    private void newFolder() {
+        EditText input = new EditText(activity);
+        input.setHint(t.apply("Nombre de la carpeta", "Folder name"));
+        input.setSingleLine(true);
+        int p = dp(20);
+        input.setPadding(p, dp(8), p, dp(8));
+        new MaterialAlertDialogBuilder(activity)
+                .setTitle(t.apply("Nueva carpeta", "New folder"))
+                .setView(input)
+                .setPositiveButton(t.apply("Crear", "Create"), (d, w) -> {
+                    String name = input.getText() == null
+                            ? "" : input.getText().toString().trim();
+                    if (name.isEmpty() || name.contains("/") || name.equals(".")
+                            || name.equals("..")) {
+                        snack.accept(t.apply("Nombre no válido", "Invalid name"));
+                        return;
+                    }
+                    File dir = new File(current, name);
+                    if (dir.exists()) {
+                        snack.accept(t.apply("Ya existe", "Already exists"));
+                        return;
+                    }
+                    if (dir.mkdirs()) {
+                        snack.accept(t.apply("Carpeta creada", "Folder created"));
+                        show(current);
+                    } else {
+                        snack.accept(t.apply("No se pudo crear", "Could not create"));
+                    }
+                })
+                .setNegativeButton(t.apply("Cancelar", "Cancel"), null)
+                .show();
     }
 
     private void actions(File f) {

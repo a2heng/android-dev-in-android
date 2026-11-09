@@ -18,7 +18,7 @@ re-discovers them.
 | `android-project` | Scaffold or repair a Gradle project |
 | `android-install` | Install/launch/uninstall via bundled adb |
 | `android-debug` | logcat, crash/ANR, install-and-run |
-| `android-16kb` | 16 KB page-size policy and audit |
+| `android-16kb` | 16 KB ELF alignment: upgrade prebuilt `.so` instead of flipping a switch |
 
 ## Code quality
 
@@ -42,6 +42,7 @@ re-discovers them.
 | `android-networking` | OkHttp/Retrofit, timeouts, offline behavior |
 | `android-background` | WorkManager, foreground services, Doze |
 | `android-performance` | startup, jank, memory, baseline profiles |
+| `termux` | bundled Termux userland: bash/git/python/node/clang, pkg/apt, adb, path traps |
 
 ## Release
 

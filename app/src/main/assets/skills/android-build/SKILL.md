@@ -9,8 +9,11 @@ This phone is the build machine. Everything below runs locally; no PC, no cloud.
 
 **16 KB first:** the build script audits the produced APK and prints a 16 KB
 alignment report. Set `ADIA_16KB_STRICT=1` to fail the build when a native
-library is only 4 KB aligned. See the `android-16kb` skill before changing
-aapt2/NDK/prebuilt `.so` files.
+library is only 4 KB aligned. **A Gradle switch or `zipalign -P 16` does not
+fix this**: the alignment lives inside each prebuilt 64-bit `.so`. When the
+check flags `libonnxruntime`, `libopencv_java4`, `libc++_shared`, etc., upgrade
+the dependency to a version that ships 16 KB-aligned Android prebuilts (see
+`android-16kb` for the ONNX/OpenCV example).
 
 ## When to use
 

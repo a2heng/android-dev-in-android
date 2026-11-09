@@ -31,6 +31,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipInputStream;
 
 public final class LocalRuntime {
     private static final String TAG = "OpenCodeLocal";
@@ -38,6 +40,7 @@ public final class LocalRuntime {
     private static final String PREF = "app";
     private static final String PREF_NATIVE = "native_runtime_enabled";
     private static final String PREF_PROJECTS = "projects";
+    private static final String PRESET_ASSET = "preset/AndroidApp";
     private static final String PREF_PROJECT_DIRS = "dirs";
     private static final int MAX_REMEMBERED_PROJECTS = 8;
     private static final long NATIVE_HEALTH_TIMEOUT_MS = 45_000;
@@ -73,6 +76,165 @@ public final class LocalRuntime {
         } catch (IOException ignored) {
         }
         return w;
+    }
+
+    /** Proyecto Android de ejemplo que se abre por defecto. */
+    public static File presetProjectDir(Context ctx) {
+        return new File(workspaceDir(ctx), "AndroidApp");
+    }
+
+    /** Copia el proyecto de ejemplo si aun no existe (no pisa ediciones). */
+    public static void seedPresetProject(Context ctx) {
+        File dest = presetProjectDir(ctx);
+        if (!new File(dest, "settings.gradle").isFile()) {
+            try {
+                copyAssetTree(ctx, PRESET_ASSET, dest);
+                Log.i(TAG, "proyecto Android de ejemplo creado en " + dest);
+            } catch (Exception e) {
+                Log.w(TAG, "no se pudo crear el proyecto de ejemplo: " + e);
+            }
+        }
+        // Repo del ejemplo con un commit real (ID de proyecto estable).
+        if (!hasGitCommit(dest)) {
+            deleteTree(new File(dest, ".git"));
+            try {
+                unzipAsset(ctx, "preset/AndroidApp-git.zip", dest);
+            } catch (Exception e) {
+                Log.w(TAG, "no se pudo extraer el git del ejemplo: " + e);
+                initEmptyGit(dest);
+            }
+        }
+        removeEmptyAncestorRepo(homeDir(ctx), dest);
+        removeEmptyAncestorRepo(workspaceDir(ctx), dest);
+    }
+
+    /**
+     * Instalaciones antiguas inicializaban git en workspace/ para evitar que
+     * opencode usara "/" como worktree. Eso convertia todas las carpetas en
+     * un solo proyecto. Si el repo de workspace sigue vacio (sin commits) y
+     * ya existe el proyecto de ejemplo con su propio repo, se retira.
+     */
+    private static void removeEmptyAncestorRepo(File repo, File preset) {
+        File git = new File(repo, ".git");
+        if (!git.isDirectory()) return;
+        if (!new File(preset, ".git").isDirectory()) return;
+        try {
+            File heads = new File(git, "refs/heads");
+            File[] refs = heads.listFiles();
+            File packed = new File(git, "packed-refs");
+            boolean hasRefs = refs != null && refs.length > 0;
+            boolean hasPacked = packed.isFile() && packed.length() > 0;
+            File logs = new File(git, "logs/HEAD");
+            boolean hasLog = logs.isFile() && logs.length() > 0;
+            if (hasRefs || hasPacked || hasLog) return;
+            deleteTree(git);
+            Log.i(TAG, "repo vacio de workspace retirado (los proyectos van por carpeta)");
+        } catch (Exception e) {
+            Log.w(TAG, "no se pudo retirar el repo de workspace: " + e);
+        }
+    }
+
+    private static void deleteTree(File f) {
+        File[] kids = f.listFiles();
+        if (kids != null) for (File kid : kids) deleteTree(kid);
+        //noinspection ResultOfMethodCallIgnored
+        f.delete();
+    }
+
+    private static boolean hasGitCommit(File dir) {
+        File heads = new File(dir, ".git/refs/heads");
+        File[] refs = heads.listFiles();
+        if (refs != null && refs.length > 0) return true;
+        File packed = new File(dir, ".git/packed-refs");
+        return packed.isFile() && packed.length() > 0;
+    }
+
+    private static void unzipAsset(Context ctx, String asset, File dest)
+            throws IOException {
+        String base = dest.getCanonicalPath();
+        try (ZipInputStream zin = new ZipInputStream(ctx.getAssets().open(asset))) {
+            ZipEntry e;
+            byte[] buf = new byte[8192];
+            while ((e = zin.getNextEntry()) != null) {
+                File out = new File(dest, e.getName());
+                String path = out.getCanonicalPath();
+                if (!path.equals(base) && !path.startsWith(base + File.separator)) continue;
+                if (e.isDirectory()) {
+                    mkdirs(out);
+                } else {
+                    mkdirs(out.getParentFile());
+                    try (OutputStream os = new FileOutputStream(out)) {
+                        int n;
+                        while ((n = zin.read(buf)) > 0) os.write(buf, 0, n);
+                    }
+                }
+            }
+        }
+    }
+
+    private static String shellQuote(String s) {
+        return "'" + s.replace("'", "'\\''") + "'";
+    }
+
+    /** Primer commit para que el proyecto tenga un ID estable (no "global"). */
+    private static void commitProject(Context app, File dir) {
+        if (hasGitCommit(dir)) return;
+        String path = dir.getAbsolutePath();
+        String cmd = "cd " + shellQuote(path)
+                + " && git add -A && git -c user.name=Adia -c user.email=adia@local"
+                + " -c commit.gpgsign=false commit -q --allow-empty -m "
+                + shellQuote("Adia project: " + path);
+        String out = runInSandbox(app, cmd, 45_000);
+        Log.i(TAG, "commit " + path + ": " + (out == null || out.isEmpty() ? "ok" : out));
+    }
+
+    /** Repo git minimo, sin depender del binario git (primer arranque). */
+    public static boolean initEmptyGit(File dir) {
+        try {
+            File git = new File(dir, ".git");
+            if (new File(git, "HEAD").isFile()) return true;
+            mkdirs(new File(git, "objects/info"));
+            mkdirs(new File(git, "objects/pack"));
+            mkdirs(new File(git, "refs/heads"));
+            mkdirs(new File(git, "refs/tags"));
+            writeText(new File(git, "HEAD"), "ref: refs/heads/main\n");
+            writeText(new File(git, "config"),
+                    "[core]\n\trepositoryformatversion = 0\n\tfilemode = true\n"
+                    + "\tbare = false\n\tlogallrefupdates = true\n");
+            writeText(new File(git, "description"), "Adia project\n");
+            return true;
+        } catch (Exception e) {
+            Log.w(TAG, "initEmptyGit " + dir + ": " + e);
+            return false;
+        }
+    }
+
+    private static void writeText(File f, String text) throws IOException {
+        try (OutputStream out = new FileOutputStream(f)) {
+            out.write(text.getBytes(StandardCharsets.UTF_8));
+        }
+    }
+
+    private static void copyAssetTree(Context ctx, String assetPath, File dest)
+            throws IOException {
+        String[] kids = ctx.getAssets().list(assetPath);
+        if (kids == null || kids.length == 0) {
+            if (dest.exists()) return;
+            File parent = dest.getParentFile();
+            if (parent != null) mkdirs(parent);
+            try (InputStream in = ctx.getAssets().open(assetPath);
+                 OutputStream out = new FileOutputStream(dest)) {
+                byte[] buf = new byte[8192];
+                int n;
+                while ((n = in.read(buf)) > 0) out.write(buf, 0, n);
+            }
+            if ("gradlew".equals(dest.getName())) dest.setExecutable(true, false);
+            return;
+        }
+        mkdirs(dest);
+        for (String kid : kids) {
+            copyAssetTree(ctx, assetPath + "/" + kid, new File(dest, kid));
+        }
     }
 
     /**
@@ -191,6 +353,34 @@ public final class LocalRuntime {
         return p;
     }
 
+    private static String basicAuth(Context ctx) {
+        String raw = "opencode:" + serverPassword(ctx);
+        return "Basic " + Base64.getEncoder().encodeToString(
+                raw.getBytes(StandardCharsets.UTF_8));
+    }
+
+    /**
+     * Registra el proyecto de ejemplo en el servidor para que aparezca en el
+     * selector sin tener que crearlo a mano.
+     */
+    private static void prewarmPreset(Context app, int port) {
+        String real = presetProjectDir(app).getAbsolutePath();
+        rememberProject(app, real);
+        try {
+            URL url = new URL("http://127.0.0.1:" + port
+                    + "/api/location?location%5Bdirectory%5D="
+                    + java.net.URLEncoder.encode(real, "UTF-8"));
+            HttpURLConnection c = (HttpURLConnection) url.openConnection();
+            c.setConnectTimeout(3000);
+            c.setReadTimeout(6000);
+            c.setRequestProperty("Authorization", basicAuth(app));
+            int code = c.getResponseCode();
+            c.disconnect();
+            Log.i(TAG, "proyecto de ejemplo registrado: HTTP " + code);
+        } catch (Exception e) {
+            Log.w(TAG, "no se pudo registrar el proyecto de ejemplo: " + e);
+        }
+    }
 
     /**
      * v2: crea un codigo de emparejamiento de un solo uso y devuelve la URL
@@ -243,6 +433,7 @@ public final class LocalRuntime {
             }
             Context app = ctx.getApplicationContext();
             AppLog.init(app);
+            seedPresetProject(app);
             if (nativeEnabled(app) && nativeAvailable(app)) {
                 try {
                     if (startNative(app, port)) {
@@ -334,11 +525,11 @@ public final class LocalRuntime {
         env.put("OPENCODE_WRAPPER", wrapper.getAbsolutePath());
         env.put("SHELL", agentShell.getAbsolutePath());
 
-        // El repo debe existir antes de "serve": si no, upstream resuelve el
-        // worktree como "/" y el watcher recorre todo el sistema de archivos.
+        // El proyecto por defecto es el de ejemplo (OPENCODE_TEST_HOME).
+        // No se crea git en workspace/: seria un ancestro comun y todas las
+        // carpetas acabarian siendo el mismo proyecto.
         File workspace = workspaceDir(app);
         ensureNativeGit(home, nd);
-        ensureGitRepo(workspace, nd, LocalToolbox.prefix(app), env);
 
         List<String> cmd = new ArrayList<>();
         cmd.add(musl.getAbsolutePath());
@@ -352,10 +543,10 @@ public final class LocalRuntime {
         cmd.add(Integer.toString(port));
         cmd.add("--print-logs");
         cmd.add("--log-level");
-        cmd.add("INFO");
+        cmd.add("info");
 
         ProcessBuilder pb = new ProcessBuilder(cmd);
-        pb.directory(workspace);
+        pb.directory(presetProjectDir(app));
         pb.redirectErrorStream(true);
         pb.environment().clear();
         pb.environment().putAll(env);
@@ -385,12 +576,15 @@ public final class LocalRuntime {
         File prootTmp = new File(tmp, "proot");
         File lib = new File(home, "lib");
         File etc = new File(home, ".oc-etc");
+        File project = presetProjectDir(app);
         mkdirs(home);
         mkdirs(config);
         mkdirs(tmp);
         mkdirs(prootTmp);
         mkdirs(lib);
         mkdirs(etc);
+        mkdirs(project);
+        seedPresetProject(app);
         writeConfig(config);
         writeGitConfig(home);
         installTools(app, config);
@@ -405,7 +599,15 @@ public final class LocalRuntime {
         copyIfNeeded(new File(nd, "libgcc_s.so"), new File(lib, "libgcc_s.so.1"));
 
         Map<String, String> env = buildEnv(app, home, tmp, etc, lib, nd, loader, prootTmp);
-        List<String> cmd = prootCmd(app, home, tmp, etc, musl, proot, env);
+        env.put("PWD", home.getAbsolutePath());
+        try {
+            ensureGitRepo(project, nd, LocalToolbox.prefix(app),
+                    buildNativeEnv(app, home, tmp, nd, 0));
+        } catch (Exception e) {
+            Log.w(TAG, "git init del proyecto de ejemplo: " + e);
+        }
+        List<String> cmd = prootCmd(app, home, tmp, etc, musl, proot, env,
+                presetProjectDir(app).getAbsolutePath());
         cmd.add(bin.getAbsolutePath());
         cmd.add("serve");
         cmd.add("--hostname");
@@ -414,11 +616,18 @@ public final class LocalRuntime {
         cmd.add(Integer.toString(port));
 
         ProcessBuilder pb = new ProcessBuilder(cmd);
-        pb.directory(workspaceDir(app));
+        pb.directory(presetProjectDir(app));
         pb.redirectErrorStream(true);
         pb.environment().clear();
         pb.environment().putAll(env);
         spawn(pb, bin.getAbsolutePath());
+        Thread warm = new Thread(() -> {
+            if (waitForHealthy(port, null, 60_000, serverPassword(app))) {
+                prewarmPreset(app, port);
+            }
+        }, "preset-warmup");
+        warm.setDaemon(true);
+        warm.start();
         return true;
     }
 
@@ -447,7 +656,9 @@ public final class LocalRuntime {
             File proot = new File(nd, "libproot.so");
             File loader = new File(nd, "libproot_loader.so");
             Map<String, String> env = buildEnv(app, home, tmp, etc, lib, nd, loader, prootTmp);
-            List<String> cmd = prootCmd(app, home, tmp, etc, musl, proot, env);
+            env.put("PWD", home.getAbsolutePath());
+            List<String> cmd = prootCmd(app, home, tmp, etc, musl, proot, env,
+                    home.getAbsolutePath());
             cmd.add("/system/bin/sh");
             cmd.add("-c");
             cmd.add(command);
@@ -521,7 +732,8 @@ public final class LocalRuntime {
         File tramp = new File(nd, "libgit.so");
         File dotGit = new File(home, ".git");
         if (!gitReal.isFile() || !tramp.isFile()) {
-            Log.w(TAG, "git no disponible; se omite la inicializacion del repo");
+            Log.w(TAG, "git no disponible; se crea un repo minimo");
+            initEmptyGit(home);
             return;
         }
         try {
@@ -637,27 +849,41 @@ public final class LocalRuntime {
             }
         }
         if (!dir.isDirectory()) return canonical(dir);
-        String root = projectRoot(app, dirPath);
-        if (new File(root, ".git").exists()) {
-            rememberProject(app, root);
-            return root;
-        }
         String path = canonical(dir);
+        String homePath = canonical(homeDir(app));
+        String workspacePath = canonical(workspaceDir(app));
+        // HOME, workspace y sus ancestros nunca son proyectos: un repo ahi
+        // convertiria todas las carpetas de dentro en el mismo proyecto.
         if ("/".equals(path) || "/sdcard".equals(path)
-                || "/storage/emulated/0".equals(path)) {
-            Log.w(TAG, "no se inicializa git en la raiz " + path);
+                || "/storage/emulated/0".equals(path)
+                || path.equals(homePath) || path.equals(workspacePath)
+                || homePath.startsWith(path + File.separator)
+                || workspacePath.startsWith(path + File.separator)) {
+            Log.w(TAG, "no se inicializa git en raiz compartida " + path);
             return path;
+        }
+        String root = projectRoot(app, dirPath);
+        String rootPath = canonical(new File(root));
+        if (!rootPath.equals(homePath) && !rootPath.equals(workspacePath)
+                && new File(root, ".git").exists()) {
+            rememberProject(app, root);
+            final File rootDir = new File(root);
+            new Thread(() -> commitProject(app, rootDir), "project-commit").start();
+            return root;
         }
         synchronized (GIT_LOCK) {
             root = projectRoot(app, dirPath);
-            if (new File(root, ".git").exists()) {
+            rootPath = canonical(new File(root));
+            if (!rootPath.equals(homePath) && !rootPath.equals(workspacePath)
+                    && new File(root, ".git").exists()) {
                 rememberProject(app, root);
                 return root;
             }
             File nd = new File(app.getApplicationInfo().nativeLibraryDir);
             File tramp = new File(nd, "libgit.so");
             if (!tramp.isFile()) {
-                Log.w(TAG, "sin libgit.so; no se prepara " + path);
+                Log.w(TAG, "sin libgit.so; repo minimo en " + path);
+                initEmptyGit(dir);
                 return path;
             }
             try {
@@ -685,9 +911,17 @@ public final class LocalRuntime {
                 }
                 boolean ok = p.exitValue() == 0 && new File(dir, ".git").exists();
                 Log.i(TAG, "git init " + path + ": " + (ok ? "ok" : out));
-                if (ok) rememberProject(app, path);
+                final File target = dir;
+                if (ok) {
+                    rememberProject(app, path);
+                    new Thread(() -> commitProject(app, target), "project-commit").start();
+                } else {
+                    initEmptyGit(target);
+                    new Thread(() -> commitProject(app, target), "project-commit").start();
+                }
             } catch (Exception e) {
                 Log.w(TAG, "git init fallo en " + path + ": " + e);
+                initEmptyGit(dir);
             }
             return path;
         }
@@ -967,6 +1201,7 @@ public final class LocalRuntime {
     private static Map<String, String> buildEnv(Context app, File home, File tmp, File etc,
             File lib, File nd, File loader, File prootTmp) throws IOException {
         Map<String, String> env = new LinkedHashMap<>();
+            // HOME real de la app: una sola ruta, sin alias.
             env.put("HOME", home.getAbsolutePath());
             env.put("TMPDIR", tmp.getAbsolutePath());
             env.put("XDG_CONFIG_HOME", new File(home, ".config").getAbsolutePath());
@@ -1022,7 +1257,8 @@ public final class LocalRuntime {
     }
 
     private static List<String> prootCmd(Context app, File home, File tmp, File etc,
-            File musl, File proot, Map<String, String> env) throws IOException {
+            File musl, File proot, Map<String, String> env, String sandboxCwd)
+            throws IOException {
         File toolbox = LocalToolbox.prefix(app);
         boolean hasToolbox = LocalToolbox.installed(app);
         StringBuilder script = new StringBuilder();
@@ -1054,7 +1290,7 @@ public final class LocalRuntime {
         cmd.add("-b");
         cmd.add(new File(etc, "resolv.conf").getAbsolutePath() + ":/etc/resolv.conf");
         cmd.add("-w");
-        cmd.add(home.getAbsolutePath());
+        cmd.add(sandboxCwd == null ? home.getAbsolutePath() : sandboxCwd);
         return cmd;
     }
 

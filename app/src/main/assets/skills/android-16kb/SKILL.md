@@ -1,53 +1,99 @@
 ---
 name: Android 16 KB
-description: Enforce Android 16 KB page-size compatibility for apps and the on-device toolchain. Use when building/shipping native code, choosing aapt2/adb/aidl, or auditing an APK.
+description: Understand and fix Android 16 KB page-size compatibility. Use when an APK check reports 4KB/UNALIGNED, when adding native AARs (ONNX, OpenCV, etc.), or when deciding whether a Gradle switch/zipalign is enough.
 ---
 
 # Android 16 KB page size
 
-**Policy: follow the official recommendation, not “4 KB is forbidden”.**
-16 KB alignment is what Google recommends for new devices and what Play asks
-for new apps/updates targeting Android 15+. A 4 KB-aligned app still runs on a
-4 KB device (this phone is one). The goal is to be ready for 16 KB devices and
-to make the trade-off visible, not to claim 4 KB is broken.
+**The 16 KB problem is not a build switch. It is the ELF `PT_LOAD` alignment of
+the prebuilt 64-bit `.so` files inside the APK.** No Gradle flag, no
+`useLegacyPackaging`, and no `zipalign -P 16` can change the alignment inside
+an ELF that was compiled for 4 KB pages. The fix is to ship 64-bit native
+libraries that upstream already built for 16 KB (or rebuild them with
+`-Wl,-z,max-page-size=16384`).
 
-Prefer a 16 KB-aligned tool or native library when one exists. If a 4 KB-only
-component is unavoidable, document it and set `ADIA_16KB_STRICT=0` for that
-build. Release builds from `android-build` enable `ADIA_16KB_STRICT=1` by
-default (strict 64-bit check) and fail only on misaligned **64-bit** libraries;
-32-bit ABIs are skipped.
+Policy: follow the official recommendation, not “4 KB is forbidden”. A
+4 KB-aligned app still runs on a 4 KB device (this phone is one). The goal is
+to be ready for 16 KB devices and to make the trade-off visible.
 
-## What must be aligned
-
-Every `PT_LOAD` segment of every `arm64-v8a` ELF that runs on the device:
-
-- the app's `lib*.so` (including dependency AARs)
-- native executables packed in `jniLibs` (opencode, adb, aapt2, ...)
-- toolchain binaries executed on the phone (aapt2, aidl, adb, zipalign, ...)
-
-Java/JAR/Gradle code does not have this constraint. **32-bit ABIs**
-(`armeabi-v7a`, `x86`) are not part of the 16 KB requirement; the checker marks
-them `SKIP`, not `4KB/UNALIGNED`. Only 64-bit ELF (`arm64-v8a`, `x86_64`)
-failures block a release.
-
-## Audit
-
-For a built APK:
+## First: find who is actually misaligned
 
 ```sh
-python3 <skill-dir>/../android-build/scripts/check-16kb.py app/build/outputs/apk/debug/app-debug.apk
+python3 <skills>/android-build/scripts/check-16kb.py app/build/outputs/apk/debug/app-debug.apk
 ```
 
-For a directory of `.so` files:
+The report shows `min_align=0x1000` (4 KB, bad) or `0x4000` (16 KB, good) per
+64-bit library. Typical offenders come from native AARs:
 
-```sh
-python3 <skill-dir>/../android-build/scripts/check-16kb.py app/src/main/jniLibs/arm64-v8a
+- `libonnxruntime.so` / `libonnxruntime4j_jni.so` (ONNX Runtime)
+- `libopencv_java4.so` (OpenCV)
+- `libc++_shared.so` (often repacked by those AARs)
+
+32-bit ABIs (`armeabi-v7a`, `x86`) are `SKIP`; only 64-bit ELF
+(`arm64-v8a`, `x86_64`) counts.
+
+## What does NOT fix it
+
+- **`zipalign -P 16` / `useLegacyPackaging`**: these align the `.so` *inside
+  the APK zip*. They do not touch the ELF `PT_LOAD` segments. The runtime
+  loader still sees 4 KB ELF alignment.
+- **`ADIA_16KB_STRICT=0`**: only skips the check. The app will still fail to
+  load that library on a 16 KB device.
+- **A Gradle “16 KB switch”**: AGP has no switch that recompiles third-party
+  prebuilt `.so` files.
+- **Dropping to 32-bit (`armeabi-v7a`)**: passes the check because 32-bit is
+  skipped, but loses 64-bit and is not a real fix.
+
+## What actually fixes it: upgrade the dependency
+
+Replace the AAR with a version whose Android prebuilts are already 16 KB
+aligned. Real example (RapidOCR, from an on-device OCR project):
+
+```gradle
+configurations.all {
+    resolutionStrategy {
+        force 'com.microsoft.onnxruntime:onnxruntime-android:1.23.2'
+        force 'org.opencv:opencv:4.12.0'
+    }
+}
+
+dependencies {
+    implementation 'io.github.hzkitty:rapidocr4j-android:1.0.0'
+    implementation 'org.opencv:opencv:4.12.0'   // 16 KB-aligned prebuilt
+}
 ```
 
-The build skill runs this automatically after `assembleDebug`. Set
-`ADIA_16KB_STRICT=1` to turn misalignment into a build failure.
+Why this works:
 
-## Current status of the bundled toolchain
+- ONNX Runtime 1.18.0 (the version RapidOCR 1.0.0 pulls) shipped 4 KB
+  `arm64-v8a` libraries. 1.23.2 ships 16 KB ones.
+- OpenCV 4.9.0 was 4 KB; 4.12.0 (NDK 27+) is 16 KB aligned, and it also brings
+  a 16 KB `libc++_shared.so`.
+- No need to rebuild ONNX/OpenCV from source on the phone, and 64-bit stays.
+
+After rebuilding, the check should show all 64-bit libraries as `16KB OK`:
+
+```text
+arm64-v8a: 8/8 16KB OK
+x86_64:    8/8 16KB OK
+armeabi-v7a/x86: SKIP
+```
+
+Risk: the wrapper library was tested against the old native versions. Compile
+and install are not enough — run the actual feature (e.g. take a photo and run
+OCR) before declaring success. If the new ABI misbehaves, pin the wrapper to a
+version that officially uses the newer natives, or rebuild it.
+
+## If no 16 KB build exists
+
+- Prefer NDK r28+ and `-DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON` +
+  `-Wl,-z,max-page-size=16384` when you control the source.
+- For a 4 KB-only dependency you cannot replace, document it and set
+  `ADIA_16KB_STRICT=0` for that build. This is a known limitation, not a fix.
+- Never substitute the 4 KB `aapt2` back: `aapt2` is executed on the device and
+  is the one critical tool.
+
+## Bundled toolchain status
 
 | Component | Status |
 |---|---|
@@ -61,27 +107,11 @@ The build skill runs this automatically after `assembleDebug`. Set
 | `aapt`, `dexdump`, `split-select`, `zipalign` (lzhiyong static) | 4 KB, optional |
 
 `make-toolchain.py` audits the critical tools (`aapt2`, `aidl`) and the Termux
-`adb` before zipping; a regression fails the toolchain build. The four 4 KB
-tools above are **not executed by AGP 8.5** in a normal build: AGP uses aapt2,
-`zipalign` is manual-only, and `aapt`/`dexdump`/`split-select` are legacy. They
-are kept for compatibility. If you need them on a 16 KB device, build them from
-AOSP with `-Wl,-z,max-page-size=16384` (aapt2/aidl/adb are already covered).
-
-Never use the 4 KB `aapt2` back; it is the one critical tool.
-
-For a 16 KB-only environment:
-
-- Prefer NDK r28+ with `-DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON` and
-  `-Wl,-z,max-page-size=16384`.
-- Do not ship a 4 KB 64-bit `.so` from a prebuilt AAR; rebuild from source or
-  find a 16 KB build. A 32-bit `.so` is allowed but unnecessary on arm64.
-- For a 4 KB-only dependency that cannot be replaced, set
-  `ADIA_16KB_STRICT=0` and document the limitation.
+`adb` before zipping; a regression fails the toolchain build. The 4 KB tools above are not executed by AGP 8.5 in a normal build.
 
 ## Known limits
 
 - The test device is 4 KB (`getconf PAGE_SIZE` = 4096); 16 KB is verified by
   static ELF alignment, not yet by a 16 KB kernel.
-- APK zip alignment: AGP handles uncompressed native libs; keep
-  `useLegacyPackaging = true` or verify with `zipalign -c -P 16`.
-- A 4 KB `aapt2` will fail to load on a 16 KB device; never substitute it back.
+- Always re-run the checker on the final release APK, not only on the debug
+  build.

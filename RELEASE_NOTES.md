@@ -33,9 +33,9 @@ Android Dev In Android —— 在手机上运行 opencode 和完整的 Android �
 - **v2 自动登录**：一次性 `/auth/connect/<code>` 建立会话，不手输密码。
 - **离线工具链**：Termux JDK 21、Android platform 35、aarch64 aapt2、
   Gradle 9.8.1、Maven 种子缓存、设备内 adb。
-- **21 个内置 skill**：构建、调试、项目、UI、测试、发布、安装、性能、
+- **22 个内置 skill**：构建、调试、项目、UI、测试、发布、安装、性能、
   NDK、依赖、共享库缓存、国际化、安全、Gradle、发布、架构、网络、数据库、
-  后台、16 KB、skill-installer。
+  后台、16 KB、Termux 工具链、skill-installer。
 - **无「所有文件访问」权限**：workspace、toolchain、配置和 skills 全部位于
   `/data/user/0/com.a2heng.adia/files/home`；文件分享走 FileProvider，
   保存走系统文件选择器。
@@ -125,7 +125,7 @@ phone, offline-first.
 - **Automatic v2 login** via a one-time `/auth/connect/<code>` link.
 - **Offline toolchain**: Termux JDK 21, Android platform 35, aarch64 aapt2,
   Gradle 9.8.1, Maven seed cache and on-device adb.
-- **21 bundled skills**.
+- **22 bundled skills**, including a Termux toolbox guide.
 - **No "All files access" permission**: everything lives in the app-private
   home; sharing uses FileProvider and saving uses the system file picker.
 

@@ -17,9 +17,9 @@
   `BUILD SUCCESSFUL in 26s`（增量），产物安装后正常启动。
 - 使用免费模型 `opencode/deepseek-v4.1-flash-free`，让手机内的 opencode 自己生成
   并构建 `AgentHello`，安装后显示 “Hello from opencode on-device”。
-- 内置技能 21 个：构建、调试、项目、UI、测试、发布、安装、性能、NDK、依赖、
+- 内置技能 22 个：构建、调试、项目、UI、测试、发布、安装、性能、NDK、依赖、
   共享库缓存、国际化、安全、Gradle、发布、架构、网络、数据库、后台、16 KB、
-  skill-installer。
+  Termux 工具链、skill-installer。
 
 ## 16 KB 页大小（官方建议，不是 4 KB 不可用）
 
@@ -60,6 +60,8 @@ python3 app/src/main/assets/skills/android-build/scripts/check-16kb.py \
   分发，WebView 打开本地 Web UI。不需要 Termux、不需要 root。
 - **文件分享（0.3.0）**：悬浮菜单 → **Archivos** 浏览 `~` 下的文件和文件夹；
   文件可分享给其他应用或保存到手机，文件夹会先打成 ZIP 再分享/保存。
+- **预置 Android 项目**：首次启动会创建 `~/workspace/AndroidApp`（Java、
+  AGP 8.5.2、SDK 35、无外部依赖），打开即可构建，不需要再新建项目。
 - **端侧构建 Android**：Termux 的 `openjdk-21` + Android platform 35 +
   aarch64 `aapt2` + Gradle，直接在手机上执行 `assembleDebug`。
 - **离线优先**：工具链、JDK 的 `.deb`、Gradle 发行版和常用 Maven 缓存都可以打进

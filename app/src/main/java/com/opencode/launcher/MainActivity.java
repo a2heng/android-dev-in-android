@@ -1855,7 +1855,7 @@ public class MainActivity extends AppCompatActivity {
             AppLog.line("web", msg);
         }
 
-        /** Ruta canonica de HOME, para migrar rutas antiguas de la UI. */
+        /** HOME real del servidor (ruta larga, sin alias). */
         @JavascriptInterface
         public String homeDir() {
             return LocalRuntime.homeDir(MainActivity.this).getAbsolutePath();

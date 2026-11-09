@@ -191,8 +191,22 @@ public final class Zh {
         put("Could not open the file picker", "无法打开文件选择器");
         put("The file no longer exists", "文件已不存在");
         put("Could not save", "保存失败");
+        put("New folder", "新建文件夹");
+        put("Folder name", "文件夹名称");
+        put("Create", "创建");
+        put("Invalid name", "名称无效");
+        put("Already exists", "已存在");
+        put("Folder created", "文件夹已创建");
+        put("Could not create", "创建失败");
         put("Saved: ", "已保存：");
         put("Could not share the log", "分享日志失败");
+        put("New folder", "新建文件夹");
+        put("Folder name", "文件夹名称");
+        put("Create", "创建");
+        put("Invalid name", "名称无效");
+        put("Already exists", "已存在");
+        put("Folder created", "文件夹已创建");
+        put("Could not create", "创建失败");
         put("The log is empty", "日志为空");
         put("Share log", "分享日志");
 
