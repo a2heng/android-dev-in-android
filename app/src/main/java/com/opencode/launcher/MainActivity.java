@@ -26,6 +26,7 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.view.animation.DecelerateInterpolator;
 import android.view.animation.OvershootInterpolator;
+import android.webkit.CookieManager;
 import android.webkit.HttpAuthHandler;
 import android.webkit.JavascriptInterface;
 import android.webkit.MimeTypeMap;
@@ -154,6 +155,7 @@ public class MainActivity extends AppCompatActivity {
     private String pendingSplashSnack;
     private boolean fullscreen = false;
     private boolean urlLoading = false;
+    private boolean earlyReloadTried = false;
     private boolean advancedOpen = false;
     private boolean serverOpen = false;
     /** Modo sin root: true hasta que la comprobacion de arranque diga lo contrario. */
@@ -430,6 +432,9 @@ public class MainActivity extends AppCompatActivity {
                 try {
                     Uri u = request.getUrl();
                     String path = u.getPath();
+                    if (request.isForMainFrame()) {
+                        Log.d("OpenCode", "main intercept " + path + " (" + u + ")");
+                    }
                     if (path == null) return null;
                     // Dejar pasar el pairing y la API: si se sirve el index
                     // de la SPA en /auth/connect/<code>, no se crea la cookie
@@ -473,6 +478,27 @@ public class MainActivity extends AppCompatActivity {
             public void onPageFinished(WebView view, String url) {
                 super.onPageFinished(view, url);
                 urlLoading = false;
+                // The first main frame is /auth/connect/<code>, which must not
+                // be intercepted (it sets the session cookie). WebView does not
+                // call shouldInterceptRequest again for its 302 target, so
+                // /oc-early.js was never injected. Load "/" once more; now the
+                // cookie exists and the interceptor can rewrite the HTML.
+                if (!earlyReloadTried && url != null && url.startsWith(URL)
+                        && url.indexOf("/auth/") < 0) {
+                    earlyReloadTried = true;
+                    view.evaluateJavascript(
+                            "(function(){return !!window.__ocEarlyV1;})()",
+                            value -> {
+                                if (!"true".equals(value)) {
+                                    // The WebView may not call
+                                    // shouldInterceptRequest for the 302 target,
+                                    // so inject late. The picker uses fetch
+                                    // later, which is still covered.
+                                    Log.d("OpenCode", "early missing; injecting late");
+                                    view.evaluateJavascript(earlyScript(), null);
+                                }
+                            });
+                }
                 watchUiReady();
                 injectEdgeCss();
                 flattenViewportFrame();
@@ -2085,16 +2111,29 @@ public class MainActivity extends AppCompatActivity {
     private IndexDoc fetchIndexDoc(String pathAndQuery) {
         HttpURLConnection c = null;
         try {
+            if (pathAndQuery == null || pathAndQuery.isEmpty()) pathAndQuery = "/";
             c = (HttpURLConnection) new URL(URL + pathAndQuery).openConnection();
             c.setRequestMethod("GET");
             c.setConnectTimeout(2500);
             c.setReadTimeout(4000);
             c.setUseCaches(false);
             c.setRequestProperty("Authorization", basicAuth());
+            // v2 also requires the pairing session cookie. The WebView has
+            // it after /auth/connect; a separate HttpURLConnection does not.
+            try {
+                String cookie = CookieManager.getInstance().getCookie(URL);
+                if (cookie != null && !cookie.isEmpty()) {
+                    c.setRequestProperty("Cookie", cookie);
+                }
+            } catch (Exception ignored) {
+            }
             c.setRequestProperty("Accept", "text/html");
             c.setRequestProperty("Accept-Encoding", "identity");
             c.setRequestProperty("User-Agent", "adia");
-            if (c.getResponseCode() != 200) return null;
+            if (c.getResponseCode() != 200) {
+                Log.d("OpenCode", "early html status " + c.getResponseCode());
+                return null;
+            }
             String type = c.getContentType();
             if (type != null && !type.toLowerCase(Locale.ROOT).contains("text/html")) {
                 return null;
