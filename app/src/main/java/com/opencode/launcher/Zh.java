@@ -149,6 +149,74 @@ public final class Zh {
         put("Restarting to apply the change...", "正在重启以应用更改…");
         put("Will apply on server start.", "下次启动服务端时生效。");
         put("Watchdog paused until next start.", "看门狗已暂停，直到下次启动。");
+
+        // --- menu flotante 0.3.0 ---
+        put("Server", "服务端");
+        put("Files", "文件");
+        put("System", "系统");
+        put("Back to the start screen", "返回首页");
+        put("Restarts opencode without closing the app", "重启 opencode，不关闭应用");
+        put("Frees memory; the chat disconnects", "释放内存；聊天会断开");
+        put("Browse, share or save files and folders", "浏览、分享或保存文件与文件夹");
+        put("View, copy or share what happened", "查看、复制或分享运行记录");
+        put("Tokens and cost per session", "每个会话的 token 与费用");
+        put("Boot, watchdog, lock and language", "开机启动、看门狗、应用锁和语言");
+        put("New version ", "新版本 ");
+        put("Tap to download and install", "点击下载并安装");
+        put("Check for updates", "检查更新");
+        put("Checks Adia releases", "检查 Adia 的 Release");
+        put("Report a problem", "报告问题");
+        put("Opens a GitHub issue with your description", "用你的描述打开 GitHub issue");
+        put("Adia report ", "Adia 报告 ");
+
+        // --- explorador de archivos ---
+        put("↑ Up", "↑ 上一级");
+        put("Share folder", "分享文件夹");
+        put("Empty folder", "空文件夹");
+        put("Folder", "文件夹");
+        put("Share", "分享");
+        put("Open", "打开");
+        put("Share folder (ZIP)", "分享文件夹（ZIP）");
+        put("Save folder (ZIP)", "保存文件夹（ZIP）");
+        put("Share file", "分享文件");
+        put("Save to the phone", "保存到手机");
+        put("It will be zipped and the share sheet will open:", "将压缩成 ZIP 并打开分享面板：");
+        put("It will be zipped so you can save it to Downloads or Documents:", "将压缩成 ZIP，保存到下载或文档：");
+        put("Zipping…", "正在压缩…");
+        put("Could not zip", "压缩失败");
+        put("Save folder", "保存文件夹");
+        put("Save", "保存");
+        put("No app available to share", "没有可用来分享的应用");
+        put("Could not share", "分享失败");
+        put("Could not open the file picker", "无法打开文件选择器");
+        put("The file no longer exists", "文件已不存在");
+        put("Could not save", "保存失败");
+        put("Saved: ", "已保存：");
+        put("Could not share the log", "分享日志失败");
+        put("The log is empty", "日志为空");
+        put("Share log", "分享日志");
+
+        // --- registro / reporte ---
+        put("Nothing in the log yet.\nOpen the chat and look again.", "日志还是空的。\n打开聊天后再来看。");
+        put("Clear log", "清空日志");
+        put("Clear the log?", "清空日志？");
+        put("What happened? What did you expect?", "发生了什么？你原本期望怎样？");
+        put("Attach device info and log", "附带设备信息和日志");
+        put("GitHub will open in the browser; review the text before sending.", "会在浏览器中打开 GitHub，发送前请检查内容。");
+        put("Open on GitHub", "在 GitHub 打开");
+        put("Report copied", "报告已复制");
+        put("(describe the problem here)", "（在这里描述问题）");
+        put("Could not open the browser", "无法打开浏览器");
+        put("open", "已启动");
+        put("Total: ", "总计：");
+        put("In ", "输入 ");
+        put(" · out ", " · 输出 ");
+        put(" · reasoning ", " · 推理 ");
+        put(" · cache ", " · 缓存 ");
+        put("Reading usage…", "正在读取用量…");
+        put("Odd server answer", "服务器返回异常");
+        put("Could not delete", "删除失败");
+        put("stopped", "已停止");
     }
 
     private static void put(String en, String zh) {

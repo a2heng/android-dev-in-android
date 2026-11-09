@@ -133,9 +133,8 @@ public class FilesSheet {
                 ViewGroup.LayoutParams.MATCH_PARENT, Math.max(1, dp(1))));
 
         ScrollView scroll = new ScrollView(activity);
-        int listHeight = (int) (activity.getResources().getDisplayMetrics().heightPixels * 0.58f);
         LinearLayout.LayoutParams sp = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, listHeight);
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         scroll.setLayoutParams(sp);
         LinearLayout list = new LinearLayout(activity);
         list.setOrientation(LinearLayout.VERTICAL);
@@ -144,16 +143,23 @@ public class FilesSheet {
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         root.addView(scroll);
 
-        fillList(list);
+        int count = fillList(list);
+        int maxHeight = (int) (activity.getResources().getDisplayMetrics().heightPixels * 0.58f);
+        int wanted = dp(70) * Math.max(1, count) + dp(10);
+        sp.height = Math.min(maxHeight, wanted);
+        scroll.setLayoutParams(sp);
         return root;
     }
 
-    private void fillList(LinearLayout list) {
+    private int fillList(LinearLayout list) {
         list.removeAllViews();
         File[] all = current.listFiles();
         if (all == null) all = new File[0];
         List<File> entries = new ArrayList<>(Arrays.asList(all));
         entries.sort((a, b) -> {
+            boolean ha = a.getName().startsWith(".");
+            boolean hb = b.getName().startsWith(".");
+            if (ha != hb) return ha ? 1 : -1;
             if (a.isDirectory() != b.isDirectory()) return a.isDirectory() ? -1 : 1;
             return a.getName().compareToIgnoreCase(b.getName());
         });
@@ -164,9 +170,10 @@ public class FilesSheet {
             empty.setPadding(dp(20), dp(20), dp(20), dp(20));
             empty.setTextColor(secondaryColor());
             list.addView(empty);
-            return;
+            return 1;
         }
         for (File f : entries) list.addView(row(f));
+        return entries.size();
     }
 
     private View row(File f) {
@@ -253,10 +260,9 @@ public class FilesSheet {
         new MaterialAlertDialogBuilder(activity)
                 .setTitle(t.apply("Compartir carpeta", "Share folder"))
                 .setMessage(t.apply(
-                        "Se comprimirá «" + dir.getName() + "» (" + human(size)
-                                + ") en un ZIP y se abrirá la hoja de compartir.",
-                        "«" + dir.getName() + "» (" + human(size)
-                                + ") will be zipped and the share sheet will open."))
+                        "Se comprimirá en un ZIP y se abrirá la hoja de compartir:",
+                        "It will be zipped and the share sheet will open:")
+                        + "\n" + dir.getName() + " (" + human(size) + ")")
                 .setPositiveButton(t.apply("Compartir", "Share"), (d, w) -> zipThen(dir, this::shareFile))
                 .setNegativeButton(t.apply("Cancelar", "Cancel"), null)
                 .show();
@@ -267,10 +273,9 @@ public class FilesSheet {
         new MaterialAlertDialogBuilder(activity)
                 .setTitle(t.apply("Guardar carpeta", "Save folder"))
                 .setMessage(t.apply(
-                        "Se comprimirá «" + dir.getName() + "» (" + human(size)
-                                + ") y podrás guardarla en Descargas o Documentos.",
-                        "«" + dir.getName() + "» (" + human(size)
-                                + ") will be zipped so you can save it to Downloads or Documents."))
+                        "Se comprimirá en un ZIP para guardarlo en Descargas o Documentos:",
+                        "It will be zipped so you can save it to Downloads or Documents:")
+                        + "\n" + dir.getName() + " (" + human(size) + ")")
                 .setPositiveButton(t.apply("Guardar", "Save"), (d, w) -> zipThen(dir, zip -> {
                     pendingTemp = zip;
                     export(zip, zip.getName(), "application/zip");

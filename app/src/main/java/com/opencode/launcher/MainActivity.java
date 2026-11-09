@@ -3322,13 +3322,14 @@ public class MainActivity extends AppCompatActivity {
                 .append(" (SDK ").append(Build.VERSION.SDK_INT).append(")\n");
         b.append("- Dispositivo: ").append(Build.MANUFACTURER)
                 .append(' ').append(Build.MODEL).append('\n');
-        b.append("- Servidor: ").append(serverOpen ? "abierto" : "detenido").append('\n');
+        b.append("- Servidor: ").append(serverOpen
+                ? T("abierto", "open") : T("detenido", "stopped")).append('\n');
         b.append("- opencode: ").append(getSharedPreferences("app", MODE_PRIVATE)
                 .getString("upd_installed", "?")).append('\n');
         if (withLog) {
             String log = redactSecrets(AppLog.read(this));
-            if (log.length() > 12000) {
-                log = "…(recortado)…\n" + log.substring(log.length() - 12000);
+            if (log.length() > 4000) {
+                log = "…(recortado)…\n" + log.substring(log.length() - 4000);
             }
             if (!log.isEmpty()) {
                 b.append("\n<details><summary>Registro</summary>\n\n```\n")
@@ -3340,7 +3341,7 @@ public class MainActivity extends AppCompatActivity {
 
     private void openIssue(String description, boolean withLog) {
         String title = description.isEmpty()
-                ? "Reporte Adia " + appVersionName()
+                ? T("Reporte Adia ", "Adia report ") + appVersionName()
                 : description.split("\n")[0];
         if (title.length() > 90) title = title.substring(0, 90) + "…";
         try {
