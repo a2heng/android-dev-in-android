@@ -155,6 +155,7 @@ public class MainActivity extends AppCompatActivity {
     private String pendingSplashSnack;
     private boolean fullscreen = false;
     private boolean urlLoading = false;
+    /** Ya se intento recargar para que /oc-early.js entre antes del bundle. */
     private boolean earlyReloadTried = false;
     private boolean advancedOpen = false;
     private boolean serverOpen = false;
@@ -398,6 +399,15 @@ public class MainActivity extends AppCompatActivity {
 
         WebSettings s = web.getSettings();
         s.setJavaScriptEnabled(true);
+        // La UI web (v2) usa APIs recientes; un WebView sin actualizar es la
+        // causa habitual de "出了点问题". Se deja su version en el log para
+        // poder diagnosticarlo desde un issue.
+        try {
+            java.util.regex.Matcher engine = java.util.regex.Pattern
+                    .compile("Chrome/[0-9.]+").matcher(s.getUserAgentString());
+            Log.d("OpenCode", "webview " + (engine.find() ? engine.group() : "desconocido"));
+        } catch (Exception ignored) {
+        }
         // La UI de opencode es de escritorio: permitir pellizcar para ampliar
         // vistas apretadas (ajustes, diffs). Sin botones en pantalla.
         s.setSupportZoom(true);
@@ -487,21 +497,10 @@ public class MainActivity extends AppCompatActivity {
                 // call shouldInterceptRequest again for its 302 target, so
                 // /oc-early.js was never injected. Load "/" once more; now the
                 // cookie exists and the interceptor can rewrite the HTML.
-                if (!earlyReloadTried && url != null && url.startsWith(URL)
-                        && url.indexOf("/auth/") < 0) {
-                    earlyReloadTried = true;
-                    view.evaluateJavascript(
-                            "(function(){return !!window.__ocEarlyV1;})()",
-                            value -> {
-                                if (!"true".equals(value)) {
-                                    // The WebView may not call
-                                    // shouldInterceptRequest for the 302 target,
-                                    // so inject late. The picker uses fetch
-                                    // later, which is still covered.
-                                    Log.d("OpenCode", "early missing; injecting late");
-                                    view.evaluateJavascript(earlyScript(), null);
-                                }
-                            });
+                // Se comprueba en cada carga: si el script solo pudo entrar
+                // tarde se recarga una vez (earlyReloadTried evita bucles).
+                if (url != null && url.startsWith(URL) && url.indexOf("/auth/") < 0) {
+                    checkEarlyScript(view, url);
                 }
                 watchUiReady();
                 injectEdgeCss();
@@ -2133,6 +2132,37 @@ public class MainActivity extends AppCompatActivity {
         } finally {
             if (c != null) c.disconnect();
         }
+    }
+
+    /**
+     * /oc-early.js tiene que correr ANTES del bundle de la SPA: ademas de la
+     * cache de /provider, completa las APIs nuevas que un WebView viejo no
+     * trae (URL.canParse, Promise.try...). Si el WebView no llamo al
+     * interceptor para el 302 de /auth/connect, el script solo se pudo
+     * inyectar tarde y la SPA ya murio al arrancar con
+     * "TypeError: URL.canParse is not a function". En ese caso se recarga una
+     * vez con la misma cabecera Basic: la siguiente carga si pasa por el
+     * interceptor, el script queda en <head> y la SPA arranca con los shims.
+     */
+    private void checkEarlyScript(WebView view, String url) {
+        String probe = "(function(){"
+                + "var early=!!window.__ocEarlyV1;"
+                + "var modern=typeof URL.canParse==='function'"
+                + "&&typeof Promise.try==='function'"
+                + "&&typeof Map.groupBy==='function'"
+                + "&&typeof Array.prototype.toSorted==='function';"
+                + "return early+','+modern;})()";
+        view.evaluateJavascript(probe, value -> {
+            String state = value == null ? "" : value.replace("\"", "");
+            if (state.startsWith("true")) return;
+            Log.d("OpenCode", "early missing; injecting late");
+            view.evaluateJavascript(earlyScript(), null);
+            // Si el motor ya tiene las APIs solo faltaba la cache de fetch.
+            if (state.endsWith("true") || earlyReloadTried) return;
+            earlyReloadTried = true;
+            Log.d("OpenCode", "webview antiguo sin los shims; recargando una vez");
+            webLoad(url);
+        });
     }
 
     private String injectEarlyScript(String html) {

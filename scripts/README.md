@@ -34,6 +34,17 @@ For GitHub downloads on a restricted network, set a proxy in the environment
 HTTPS_PROXY=http://127.0.0.1:10808 python scripts/fetch-opencode.py
 ```
 
+## WebView shims
+
+`app/src/main/assets/oc-early.js` runs before the opencode SPA bundle and fills
+in the APIs that a WebView without updates lacks (`URL.canParse`,
+`Promise.try`, `toSorted`...). To check it without an emulator (it deletes the
+modern APIs from Node and expects the shims to bring them back):
+
+```sh
+node scripts/test-webview-shims.js
+```
+
 ## Notes
 
 - `fetch-toolbox.py` resolves dependencies from the Termux `Packages.gz`
