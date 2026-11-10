@@ -1,3 +1,36 @@
+# Adia v0.3.2
+
+Android Dev In Android —— 在手机上运行 opencode 和完整的 Android 构建工具链，离线优先。
+
+## 本版重点
+
+- **工具链整体换代**：AGP **9.5.1**、Gradle **9.9.0**、`compileSdk 36`、Android
+  platform **36 (r02)**、build-tools **36.0.0**。AGP 9.5 不再接受低版本
+  build-tools，而 Google 并不发布 aarch64 版 build-tools，所以内置的 35.0.2
+  原生二进制（aapt2 为 AOSP 自编译、支持 35/36/37 资源且 16 KB 对齐）以
+  36.0.0 的元数据发布，并在真机上验证过：`assembleDebug` 离线 **35 秒**完成，
+  16 KB 对齐检查通过。
+- **命令引擎可切换**：`oc-engine auto|proot|native|status`。`auto`（默认）按命令
+  分派，`proot` 全部进沙箱，`native` 强制原生（用于测速）。切换在下一条命令
+  生效，不用重启服务。
+- **工具集统一但不进 ptrace**：`find grep sed awk diff less cmp gzip bzip2 xz
+  zstd sort uniq cut tr head tail wc stat du md5sum sha1sum sha256sum base64`
+  直接跑模块里的 GNU 版本，与 proot 里完全一致。实测同一条
+  `cat | sed | sort | uniq | wc` 管线：原生 0.03 秒 vs proot 1.39 秒。
+- **修复工具链解压丢文件**：Android 的 `ZipInputStream` 从 500 MB 的 asset zip
+  里静默漏掉一条 entry（`build-tools/aapt`），导致 AGP 报
+  「Installed Build Tools revision 36.0.0 is corrupted」。现在先落盘再用
+  `ZipFile` 读中央目录，并在解压后校验 aapt/aapt2/aidl/zipalign。
+- **126 回退**：execve 被 Android 拒绝返回 126（不只是 127），现在也会重新
+  在 proot 里执行。
+
+## 仍然保持
+
+- v0.3.1 的旧 WebView 修复：core-js 补齐 `URL.canParse` / `Promise.try` 等，
+  外加一次重载让脚本进 `<head>`。
+- 应用名 **Adia**，包名 `com.a2heng.adia`，opencode **2.2.6**。
+- **v2 自动登录**、**离线工具链**、**22 个内置 skill**、无「所有文件访问」权限。
+
 # Adia v0.3.1
 
 Android Dev In Android —— 在手机上运行 opencode 和完整的 Android 构建工具链，离线优先。
