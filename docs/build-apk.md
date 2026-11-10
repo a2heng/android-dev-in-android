@@ -43,10 +43,10 @@ python scripts/make-toolchain.py
 当前完整包约 **564 MB**（这是刻意的：换离线、开箱即用）。
 
 `fetch-toolbox.py` 默认使用清华 Termux 镜像，失败会自动切 USTC/BFSU/官方。
-GitHub 下载需要代理时：
+GitHub 下载需要代理时（换成自己的代理地址）：
 
 ```sh
-HTTPS_PROXY=http://127.0.0.1:10808 python scripts/fetch-opencode.py
+HTTPS_PROXY=http://127.0.0.1:<port> python scripts/fetch-opencode.py
 ```
 
 ## 构建结果（2026-11-09）

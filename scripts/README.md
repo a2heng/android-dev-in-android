@@ -28,10 +28,10 @@ python scripts/fetch-toolbox.py --repo https://mirrors.ustc.edu.cn/termux/apt/te
 ```
 
 For GitHub downloads on a restricted network, set a proxy in the environment
-(Python's `urllib` honors `HTTPS_PROXY`):
+(Python's `urllib` honors `HTTPS_PROXY`; use your own address):
 
 ```sh
-HTTPS_PROXY=http://127.0.0.1:10808 python scripts/fetch-opencode.py
+HTTPS_PROXY=http://127.0.0.1:<port> python scripts/fetch-opencode.py
 ```
 
 ## WebView shims
