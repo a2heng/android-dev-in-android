@@ -16,9 +16,9 @@ import java.util.zip.ZipInputStream;
  * Extrae el toolchain offline que viaja en assets/toolchain/toolchain.zip.
  *
  * Contenido:
- *   android-sdk/platforms/android-35/...
+ *   android-sdk/platforms/android-36/...
  *   android-sdk/build-tools/35.0.2/aapt2
- *   gradle/gradle-9.8.1/...
+ *   gradle/gradle-9.9.0/...
  *   gradle-home/caches/modules-2/...
  *
  * El JDK no va aqui: se instala desde los .deb de assets/toolbox con dpkg.
@@ -26,8 +26,10 @@ import java.util.zip.ZipInputStream;
  */
 public final class ToolchainInstaller {
     private static final String TAG = "OpenCodeToolchain";
-    public static final String VERSION = "5";
+    public static final String VERSION = "6";
     private static final String ASSET = "toolchain/toolchain.zip";
+    /** Revision empaquetada de build-tools (ver scripts/make-toolchain.py). */
+    private static final String BT_VERSION = "36.0.0";
 
     private ToolchainInstaller() {
     }
@@ -63,11 +65,24 @@ public final class ToolchainInstaller {
                 }
                 String tmpCanonical = tmp.getCanonicalPath() + File.separator;
                 int count = 0;
-                try (InputStream raw = ctx.getAssets().open(ASSET);
-                        ZipInputStream zip = new ZipInputStream(
-                                new BufferedInputStream(raw, 1 << 16))) {
-                    ZipEntry entry;
-                    while ((entry = zip.getNextEntry()) != null) {
+                // ZipInputStream perdia una entrada (build-tools/.../aapt) al
+                // leer el zip de 500 MB desde los assets. Se copia a un fichero
+                // y se usa ZipFile, que accede al indice central: 13427
+                // entradas, todas.
+                File copy = new File(root.getParentFile(), "toolchain.zip.tmp");
+                deleteTree(copy);
+                try (InputStream in = ctx.getAssets().open(ASSET);
+                        OutputStream out = new FileOutputStream(copy)) {
+                    byte[] buf = new byte[1 << 16];
+                    int n;
+                    while ((n = in.read(buf)) > 0) {
+                        out.write(buf, 0, n);
+                    }
+                }
+                try (java.util.zip.ZipFile zip = new java.util.zip.ZipFile(copy)) {
+                    java.util.Enumeration<? extends ZipEntry> entries = zip.entries();
+                    while (entries.hasMoreElements()) {
+                        ZipEntry entry = entries.nextElement();
                         String name = entry.getName();
                         if (name.isEmpty()) continue;
                         File out = new File(tmp, name);
@@ -86,10 +101,11 @@ public final class ToolchainInstaller {
                                 && !parent.mkdirs() && !parent.isDirectory()) {
                             throw new IOException("no se pudo crear " + parent);
                         }
-                        try (OutputStream os = new FileOutputStream(out)) {
+                        try (InputStream src = zip.getInputStream(entry);
+                                OutputStream os = new FileOutputStream(out)) {
                             byte[] buf = new byte[1 << 16];
                             int n;
-                            while ((n = zip.read(buf)) > 0) {
+                            while ((n = src.read(buf)) > 0) {
                                 os.write(buf, 0, n);
                             }
                         }
@@ -100,6 +116,7 @@ public final class ToolchainInstaller {
                         count++;
                     }
                 }
+                deleteTree(copy);
                 deleteTree(root);
                 if (!tmp.renameTo(root)) {
                     throw new IOException("no se pudo mover " + tmp + " a " + root);
@@ -108,6 +125,10 @@ public final class ToolchainInstaller {
                 new File(root, ".installed").createNewFile();
                 try (FileOutputStream ver = new FileOutputStream(new File(root, "version"))) {
                     ver.write(VERSION.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                }
+                for (String tool : new String[]{"aapt", "aapt2", "aidl", "zipalign"}) {
+                    File f = new File(root, "android-sdk/build-tools/" + BT_VERSION + "/" + tool);
+                    if (!f.isFile()) Log.w(TAG, "herramienta ausente: " + f);
                 }
                 Log.i(TAG, "toolchain listo: " + count + " ficheros en " + root);
             } catch (Throwable t) {

@@ -13,7 +13,7 @@
 
 - 设备：OPPO PKB110，Android 17，arm64，4 KB 页大小，158 GB 可用存储。
 - 完整离线 APK 安装成功；首次启动本地安装 toolbox + 解压 toolchain，没有下载工具链。
-- 手机内用内置 JDK 21 + Gradle 9.8.1 + SDK 35 + aapt2 构建 Hello World：
+- 手机内用内置 JDK 21 + Gradle 9.9.0 + SDK 36 + aapt2 构建 Hello World：
   `BUILD SUCCESSFUL in 26s`（增量），产物安装后正常启动。
 - 使用免费模型 `opencode/deepseek-v4.1-flash-free`，让手机内的 opencode 自己生成
   并构建 `AgentHello`，安装后显示 “Hello from opencode on-device”。
@@ -62,7 +62,7 @@ python3 app/src/main/assets/skills/android-build/scripts/check-16kb.py \
   文件可分享给其他应用或保存到手机，文件夹会先打成 ZIP 再分享/保存。
 - **默认 Home 项目**：打开就是应用私有 HOME，不预置示例项目，也不会自动
   创建 git 仓库；需要 Android 项目时让 agent 用 `android-project` skill 生成。
-- **端侧构建 Android**：Termux 的 `openjdk-21` + Android platform 35 +
+- **端侧构建 Android**：Termux 的 `openjdk-21` + Android platform 36 +
   aarch64 `aapt2` + Gradle，直接在手机上执行 `assembleDebug`。
 - **离线优先**：工具链、JDK 的 `.deb`、Gradle 发行版和常用 Maven 缓存都可以打进
   APK；首次启动只做本地解压/安装。
@@ -191,7 +191,7 @@ python scripts/make-toolchain.py
 产物会包含：
 
 - `assets/toolbox/*.deb`：Termux 工具链 + `openjdk-21` 及其依赖
-- `assets/toolchain/toolchain.zip`：Android platform 35、aapt2、Gradle 9.8.1、
+- `assets/toolchain/toolchain.zip`：Android platform 36、aapt2、Gradle 9.9.0、
   Gradle 依赖缓存
 - `lib/arm64-v8a/libopencode2_bin.so`：opencode musl 运行时
 

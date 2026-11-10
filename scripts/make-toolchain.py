@@ -15,7 +15,11 @@ import zipfile
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CACHE = os.path.join(ROOT, ".cache", "toolchain")
 DEFAULT_OUT = os.path.join(ROOT, "app", "src", "main", "assets", "toolchain", "toolchain.zip")
-PLATFORM_URL = "https://dl.google.com/android/repository/platform-35_r02.zip"
+PLATFORM_URLS = {
+    "35": "https://dl.google.com/android/repository/platform-35_r02.zip",
+    "36": "https://dl.google.com/android/repository/platform-36_r02.zip",
+}
+PLATFORM_URL = PLATFORM_URLS["35"]
 TOOLS_URL = ("https://github.com/lzhiyong/android-sdk-tools/releases/download/"
              "35.0.2/android-sdk-tools-static-aarch64.zip")
 GRADLE_URL = ("https://github.com/gradle/gradle-distributions/releases/download/"
@@ -105,8 +109,8 @@ def deb_member(deb_path, suffix):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--platform", default="35")
-    ap.add_argument("--gradle", default="9.8.1")
+    ap.add_argument("--platform", default="36")
+    ap.add_argument("--gradle", default="9.9.0")
     ap.add_argument("--gradle-cache", default=os.path.expanduser("~/.gradle/caches/modules-2"))
     ap.add_argument("--out", default=DEFAULT_OUT)
     ap.add_argument("--keep", action="store_true", help="keep the unpacked staging tree")
@@ -116,16 +120,22 @@ def main():
     tools_zip = os.path.join(CACHE, "android-sdk-tools-static-aarch64.zip")
     gradle_zip = os.path.join(CACHE, f"gradle-{args.gradle}-bin.zip")
 
-    download(PLATFORM_URL if args.platform == "35" else
-             f"https://dl.google.com/android/repository/platform-{args.platform}_r01.zip",
-             platform_zip)
+    download(PLATFORM_URLS.get(
+        args.platform,
+        f"https://dl.google.com/android/repository/platform-{args.platform}_r01.zip"),
+        platform_zip)
     download(TOOLS_URL, tools_zip)
     download(GRADLE_URL.format(version=args.gradle), gradle_zip)
 
     stage = os.path.join(CACHE, "stage")
     shutil.rmtree(stage, ignore_errors=True)
     sdk = os.path.join(stage, "android-sdk")
-    bt = os.path.join(sdk, "build-tools", "35.0.2")
+    # AGP 9.5 exige build-tools >= 36.0.0; no hay binarios aarch64 oficiales
+    # de 36.0.0, asi que el set estatico 35.0.2 (con aapt2 16 KB y aidl de
+    # Termux) se publica como 36.0.0. Probado: aapt2 35.0.2 compila
+    # recursos de la plataforma 36.
+    bt_version = "36.0.0"
+    bt = os.path.join(sdk, "build-tools", bt_version)
     os.makedirs(bt, exist_ok=True)
 
     print("platform...")
@@ -149,8 +159,22 @@ def main():
         shutil.copy2(pt_src, os.path.join(pt_dir, "adb"))
         os.chmod(os.path.join(pt_dir, "adb"), 0o755)
     with open(os.path.join(bt, "source.properties"), "w", encoding="utf-8") as f:
-        f.write("Pkg.Desc=Android SDK Build-Tools 35.0.2\n")
-        f.write("Pkg.Revision=35.0.2\n")
+        f.write("Pkg.Desc=Android SDK Build-Tools " + bt_version + "\n")
+        f.write("Pkg.Revision=" + bt_version + "\n")
+    with open(os.path.join(bt, "package.xml"), "w", encoding="utf-8") as f:
+        f.write(
+            '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+            '<ns2:repository xmlns:ns2="http://schemas.android.com/repository/android/common/02"'
+            ' xmlns:ns3="http://schemas.android.com/repository/android/common/01"'
+            ' xmlns:ns4="http://schemas.android.com/repository/android/generic/01"'
+            ' xmlns:ns5="http://schemas.android.com/repository/android/generic/02">'
+            '<localPackage path="build-tools;' + bt_version + '" obsolete="false">'
+            '<type-details xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"'
+            ' xsi:type="ns5:genericDetailsType"/>'
+            '<revision><major>36</major><minor>0</minor><micro>0</micro></revision>'
+            '<display-name>Android SDK Build-Tools ' + bt_version + '</display-name>'
+            '</localPackage></ns2:repository>')
+
     # AGP needs this platform-independent jar for Java 8 lambda desugaring.
     core_stubs = os.path.join(ROOT, "third_party", "android-build-tools",
                               "core-lambda-stubs.jar")
@@ -218,7 +242,9 @@ def main():
     print("cache...")
     cache_dst = os.path.join(stage, "gradle-home", "caches", "modules-2")
     if os.path.isdir(args.gradle_cache):
-        shutil.copytree(args.gradle_cache, cache_dst)
+        # *.lock se queda abierto por el daemon de Gradle en Windows.
+        shutil.copytree(args.gradle_cache, cache_dst,
+                        ignore=shutil.ignore_patterns("*.lock"))
     else:
         print("warning: gradle cache not found:", args.gradle_cache)
         os.makedirs(cache_dst, exist_ok=True)

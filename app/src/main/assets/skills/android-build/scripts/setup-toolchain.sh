@@ -8,10 +8,10 @@ set -eu
 
 BUNDLED="$HOME/toolchain"
 SDK="$BUNDLED/android-sdk"
-BT_VERSION="35.0.2"
+BT_VERSION="36.0.0"
 BT="$SDK/build-tools/$BT_VERSION"
 CACHE="$HOME/.cache/oc-toolchain"
-PLATFORM_ZIP_URL="https://dl.google.com/android/repository/platform-35_r02.zip"
+PLATFORM_ZIP_URL="https://dl.google.com/android/repository/platform-36_r02.zip"
 AAPT2_ZIP_URL="https://github.com/lzhiyong/android-sdk-tools/releases/download/35.0.2/android-sdk-tools-static-aarch64.zip"
 
 say() { printf '\n[android-build] %s\n' "$*"; }
@@ -42,15 +42,15 @@ else
   mkdir -p "$SDK/platforms" "$BT" "$CACHE" "$HOME/.android"
   pkg install -y openjdk-21 curl python >/dev/null
 
-  if [ ! -f "$SDK/platforms/android-35/android.jar" ]; then
-    say "Downloading Android platform 35 (~64 MB)..."
-    curl -fL --retry 3 --retry-delay 2 -o "$CACHE/platform-35_r02.zip" "$PLATFORM_ZIP_URL"
-    python3 -m zipfile -e "$CACHE/platform-35_r02.zip" "$SDK/platforms/"
-    rm -f "$CACHE/platform-35_r02.zip"
+  if [ ! -f "$SDK/platforms/android-36/android.jar" ]; then
+    say "Downloading Android platform 36 (~64 MB)..."
+    curl -fL --retry 3 --retry-delay 2 -o "$CACHE/platform-36_r02.zip" "$PLATFORM_ZIP_URL"
+    python3 -m zipfile -e "$CACHE/platform-36_r02.zip" "$SDK/platforms/"
+    rm -f "$CACHE/platform-36_r02.zip"
   fi
 
   if [ ! -x "$BT/aapt2" ]; then
-    say "Downloading arm64 build-tools (aapt2 35.0.2)..."
+    say "Downloading arm64 build-tools (aapt2 35.0.2 packaged as 36.0.0)..."
     curl -fL --retry 3 --retry-delay 2 -o "$CACHE/android-sdk-tools.zip" "$AAPT2_ZIP_URL"
     rm -rf "$CACHE/android-sdk-tools"
     mkdir -p "$CACHE/android-sdk-tools"
@@ -58,6 +58,11 @@ else
     cp "$CACHE/android-sdk-tools/build-tools/aapt2" "$BT/aapt2"
     cp "$CACHE/android-sdk-tools/build-tools/zipalign" "$BT/zipalign" 2>/dev/null || true
     chmod 755 "$BT/aapt2" "$BT/zipalign" 2>/dev/null || true
+    # AGP necesita la revision en los metadatos, no solo el binario.
+    printf 'Pkg.Desc=Android SDK Build-Tools %s
+' "$BT_VERSION" > "$BT/source.properties"
+    printf 'Pkg.Revision=%s
+' "$BT_VERSION" >> "$BT/source.properties"
     rm -rf "$CACHE/android-sdk-tools" "$CACHE/android-sdk-tools.zip"
   fi
 fi
@@ -70,8 +75,8 @@ if [ ! -x "$BT/aapt2" ]; then
   echo "[android-build] ERROR: aapt2 not found at $BT/aapt2" >&2
   exit 2
 fi
-if [ ! -f "$SDK/platforms/android-35/android.jar" ]; then
-  echo "[android-build] ERROR: android.jar (platform 35) not found under $SDK/platforms" >&2
+if [ ! -f "$SDK/platforms/android-36/android.jar" ]; then
+  echo "[android-build] ERROR: android.jar (platform 36) not found under $SDK/platforms" >&2
   exit 2
 fi
 

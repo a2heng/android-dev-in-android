@@ -61,7 +61,7 @@ If the APK was built with the offline bundle, this only verifies the JDK
 under `$HOME/toolchain`. No network is used.
 
 For a source build without the bundle, the script falls back to installing
-`openjdk-21` and downloading Android platform 35 plus arm64 `aapt2` 35.0.2.
+`openjdk-21` and downloading Android platform 36 plus arm64 `aapt2` (packaged as build-tools 36.0.0).
 
 ### 2. Build
 
@@ -125,5 +125,5 @@ If the script fails, fix the **project** and re-run it. Only use
   `OC_USE_WRAPPER=1 bash <skill-dir>/scripts/build.sh ...`
 - If Gradle runs out of memory, lower `org.gradle.jvmargs` in the project's
   `gradle.properties` to `-Xmx2g` or `-Xmx3g`.
-- If AGP complains about the SDK, check `$ANDROID_HOME/platforms/android-35`
+- If AGP complains about the SDK, check `$ANDROID_HOME/platforms/android-36`
   contains `android.jar` and `source.properties`.

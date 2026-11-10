@@ -53,7 +53,7 @@ or:
 
 ```sh
 # inside proot, with the same env as build.sh
-"$JAVA_HOME/bin/java" -classpath "$HOME/toolchain/gradle/gradle-9.8.1/lib/gradle-gradle-cli-main-9.8.1.jar" \
+"$JAVA_HOME/bin/java" -classpath "$HOME/toolchain/gradle/gradle-9.9.0/lib/gradle-gradle-cli-main-9.9.0.jar" \
   org.gradle.launcher.GradleMain --offline :app:dependencyInsight \
   --dependency androidx.core --configuration debugRuntimeClasspath
 ```
@@ -72,7 +72,7 @@ configurations.all {
 
 ## Cache notes
 
-- The bundled cache is seeded from this app's build (AGP 8.5.2, appcompat,
+- The bundled cache is seeded from this app's build (AGP 9.5.1, appcompat,
   material, AndroidX core). It is **not** a universal Maven mirror.
 - Compose, Hilt, Room, Retrofit, Kotlin plugins and test libraries may be
   missing. Check before promising an offline build.

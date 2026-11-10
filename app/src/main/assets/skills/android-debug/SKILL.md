@@ -70,8 +70,8 @@ bash ~/.config/opencode/skills/android-build/scripts/build.sh <project> debug
 
 Common causes in this environment:
 
-- `Failed to find Build Tools revision` → the init script forces 35.0.2; check
-  `$HOME/toolchain/android-sdk/build-tools/35.0.2/source.properties`
+- `Failed to find Build Tools revision` → the init script forces 36.0.0; check
+  `$HOME/toolchain/android-sdk/build-tools/36.0.0/source.properties`
 - `core-lambda-stubs.jar` missing → toolchain bundle is incomplete
 - `aapt2` exec/format error → wrong ABI or 4 KB-only aapt2 on a 16 KB device
 - `java.io.tmpdir` missing → `$PREFIX/tmp` was not created

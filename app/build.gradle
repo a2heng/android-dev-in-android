@@ -9,7 +9,7 @@ def adiaRequireSigning = findProperty("adiaRequireSigning") == "1"
 
 android {
     namespace 'com.opencode.launcher'
-    compileSdk 34
+    compileSdk 36
 
     defaultConfig {
         applicationId "com.a2heng.adia"

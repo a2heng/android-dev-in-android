@@ -68,8 +68,8 @@ node scripts/test-webview-shims.js
   can configure the JDK. If you need a smaller build, remove `openjdk-21`
   from `DEFAULT_SET` and install it later, but then the APK is no longer
   fully offline.
-- `make-toolchain.py` bundles Android platform 35, aarch64 aapt2 35.0.2,
-  Gradle 9.8.1 and the local Gradle dependency cache. The cache is optional;
+- `make-toolchain.py` bundles Android platform 36, aarch64 aapt2 35.0.2,
+  Gradle 9.9.0 and the local Gradle dependency cache. The cache is optional;
   without it Gradle will need network unless the project's dependencies are
   already cached.
 - The generated directories are ignored by git. Do not commit GPL binaries

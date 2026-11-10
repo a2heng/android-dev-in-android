@@ -68,7 +68,7 @@ Then:
 
 ```sh
 APK=app/build/outputs/apk/release/app-release.apk
-$HOME/toolchain/android-sdk/build-tools/35.0.2/apksigner verify --print-certs "$APK" || true
+$HOME/toolchain/android-sdk/build-tools/36.0.0/apksigner verify --print-certs "$APK" || true
 sha256sum "$APK"
 ```
 

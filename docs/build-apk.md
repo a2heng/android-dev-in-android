@@ -4,7 +4,7 @@
 
 - JDK 17
 - Android SDK Platform 34 + Build-Tools 34.0.0
-- Gradle 9.8.1（或能访问 `services.gradle.org` 的 `gradlew`）
+- Gradle 9.9.0（或能访问 `services.gradle.org` 的 `gradlew`）
 
 ## 瘦 APK（只含 opencode，不含工具链）
 
@@ -28,7 +28,7 @@ python scripts/fetch-opencode.py --version 2.2.6
 # Termux 包（含 openjdk-21 及其依赖）
 python scripts/fetch-toolbox.py
 
-# Android platform 35 + aapt2 + Gradle 9.8.1 + Maven 缓存
+# Android platform 36 + aapt2 + Gradle 9.9.0 + Maven 缓存
 python scripts/make-toolchain.py
 
 ./gradlew :app:assembleDebug
@@ -51,7 +51,7 @@ HTTPS_PROXY=http://127.0.0.1:<port> python scripts/fetch-opencode.py
 
 ## 构建结果（2026-11-09）
 
-- JDK 17.0.21 + Android SDK 34 + Gradle 9.8.1
+- JDK 17.0.21 + Android SDK 34 + Gradle 9.9.0
 - `BUILD SUCCESSFUL`
 - 完整 debug APK：`dist/app-debug-offline.apk`，约 564 MB
 - 已确认 APK 内包含：

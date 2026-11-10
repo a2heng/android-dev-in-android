@@ -38,7 +38,7 @@ export TMPDIR="$GRADLE_TMP"
 
 BUNDLED="$HOME/toolchain"
 SDK="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-$BUNDLED/android-sdk}}"
-BT_VERSION="35.0.2"
+BT_VERSION="36.0.0"
 AAPT2="$SDK/build-tools/$BT_VERSION/aapt2"
 
 JAVA_HOME="${JAVA_HOME:-$PREFIX/lib/jvm/java-21-openjdk}"
@@ -53,8 +53,8 @@ if [ ! -x "$AAPT2" ]; then
   echo "[android-build] aapt2 not installed at $AAPT2. Run scripts/setup-toolchain.sh first." >&2
   exit 2
 fi
-if [ ! -f "$SDK/platforms/android-35/android.jar" ]; then
-  echo "[android-build] Android platform 35 missing under $SDK/platforms." >&2
+if [ ! -f "$SDK/platforms/android-36/android.jar" ]; then
+  echo "[android-build] Android platform 36 missing under $SDK/platforms." >&2
   exit 2
 fi
 
@@ -85,8 +85,8 @@ export PATH="$SDK/platform-tools:$SDK/build-tools/$BT_VERSION:$JAVA_HOME/bin:$PA
 # Prefer the Gradle distribution and dependency cache shipped in the APK.
 # Do not use bin/gradle: its quoting breaks under Android's mksh when it
 # builds the JVM argument list. Launch GradleMain directly instead.
-GRADLE_HOME="$BUNDLED/gradle/gradle-9.8.1"
-GRADLE_MAIN="$GRADLE_HOME/lib/gradle-gradle-cli-main-9.8.1.jar"
+GRADLE_HOME="$BUNDLED/gradle/gradle-9.9.0"
+GRADLE_MAIN="$GRADLE_HOME/lib/gradle-gradle-cli-main-9.9.0.jar"
 if [ -f "$GRADLE_MAIN" ] && [ "${OC_USE_WRAPPER:-0}" != "1" ]; then
   GRADLE_CMD=("$JAVA_HOME/bin/java" "-Djava.io.tmpdir=$GRADLE_TMP"
     -classpath "$GRADLE_MAIN" org.gradle.launcher.GradleMain)
@@ -103,9 +103,10 @@ else
   OFFLINE=""
 fi
 
-# AGP 8.5 defaults to build-tools 34.0.0, which is not in the bundle.
-# Force the bundled 35.0.2 for every Android module without touching the
-# project's build files.
+# AGP defaults to its own build-tools (9.5 wants 36.0.0), which is not in the
+# bundle: force the bundled 36.0.0 for every Android module without touching
+# the project build files. AGP 9.5 requires >= 36.0.0; the bundled set is
+# the aarch64 35.0.2 binaries published as 36.0.0 (no official aarch64 36).
 INIT="$BUNDLED/init.gradle"
 cat > "$INIT" <<'EOF'
 allprojects { p ->
@@ -113,7 +114,7 @@ allprojects { p ->
         p.plugins.withId(id) {
             def a = p.extensions.findByName('android')
             if (a != null) {
-                a.buildToolsVersion = '35.0.2'
+                a.buildToolsVersion = '36.0.0'
             }
         }
     }

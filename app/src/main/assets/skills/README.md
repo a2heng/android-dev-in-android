@@ -14,7 +14,7 @@ re-discovers them.
 
 | Skill | Use |
 |---|---|
-| `android-build` | Build an APK offline with JDK 21/Gradle 9.8.1/SDK 35, includes the 16 KB audit |
+| `android-build` | Build an APK offline with JDK 21/Gradle 9.9.0/SDK 36, includes the 16 KB audit |
 | `android-project` | Scaffold or repair a Gradle project |
 | `android-install` | Install/launch/uninstall via bundled adb |
 | `android-debug` | logcat, crash/ANR, install-and-run |

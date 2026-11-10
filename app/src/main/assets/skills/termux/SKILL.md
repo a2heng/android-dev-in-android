@@ -30,7 +30,7 @@ linker by hand. Use the shell that Adia provides and let it route the command.
 |---|---|
 | Home seen by the agent | `$HOME` = the app-private home (`/data/data/<pkg>/files/home`; always use `$HOME`) |
 | Termux prefix | `$PREFIX` = `/data/data/com.termux/files/usr` |
-| Shared toolchain | `$HOME/toolchain` (JDK 21, SDK 35, Gradle 9.8.1) |
+| Shared toolchain | `$HOME/toolchain` (JDK 21, SDK 36, Gradle 9.9.0) |
 | Gradle cache | `$HOME/toolchain/gradle-home` (`GRADLE_USER_HOME`) |
 | Maven mirror | `$HOME/toolchain/m2` |
 | Temp | `/tmp` (mapped to the app cache) |

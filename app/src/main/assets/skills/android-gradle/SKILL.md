@@ -9,10 +9,10 @@ description: Fix Android Gradle builds on the phone: AGP/Gradle compatibility, S
 
 | Component | Version |
 |---|---|
-| Gradle | 9.8.1 |
-| AGP | 8.5.2 (this app); projects may use 8.x |
+| Gradle | 9.9.0 |
+| AGP | 9.5.1 (this app); projects may use 8.13 or 9.x |
 | compileSdk | 35 |
-| build-tools | 35.0.2 |
+| build-tools | 36.0.0 (binarios 35.0.2 reetiquetados) |
 | JDK | 21 (Termux) |
 | Java source/target | 17 |
 
@@ -21,11 +21,11 @@ under Android mksh (`Could not find or load main class "-Xmx64m"`).
 
 ## Compatibility
 
-- AGP 8.5.x works with Gradle 8.7+; this bundle uses 9.8.1 successfully.
+- AGP 9.5.x needs Gradle 9.x and JDK 17+; this bundle uses Gradle 9.9.0 successfully.
 - AGP 9.x may need Gradle 9.x and newer build-tools; do not assume it works.
 - If a project pins an older Gradle via its wrapper, set
   `OC_USE_WRAPPER=1` and ensure the distribution is available, or upgrade the
-  project to AGP 8.5.2.
+  project to AGP 9.5.1.
 
 ## Memory
 
@@ -42,7 +42,7 @@ looks like a random build failure.
 
 | Error | Fix |
 |---|---|
-| `Failed to find Build Tools revision 34.0.0` | init script forces 35.0.2; add `buildToolsVersion '35.0.2'` to the module |
+| `Failed to find Build Tools revision 34.0.0` | init script forces 36.0.0; add `buildToolsVersion '36.0.0'` to the module |
 | `core-lambda-stubs.jar` missing | use toolchain v5+; the jar is bundled |
 | `aapt2` format/exec error | use the 16 KB aarch64 aapt2; check ABI |
 | `java.io.tmpdir ... doesn't exist` | let `build.sh` use `$HOME/.cache/tmp`; do not create `$PREFIX/tmp` by hand |

@@ -326,7 +326,7 @@ fork 历史），Dajeovv/opencode-android 作为 MIT 来源记录在 README 与
 - `LocalToolbox` 增加 bundled-assets 检测；源码构建没有 `assets/toolbox/*.deb`
   时自动改为在线安装 `DEFAULT_SET`。
 - 工具链方案：Termux `openjdk-21` + Google `platform-35_r02.zip` +
-  `lzhiyong` aapt2 35.0.2 + 内置 Gradle 9.8.1 与 Maven 缓存。
+  `lzhiyong` aapt2 35.0.2 + 内置 Gradle 9.9.0 与 Maven 缓存。
 - **已实现完整离线打包**：`assets/toolbox/*.deb`（含 JDK）+
   `assets/toolchain/toolchain.zip`（SDK/aapt2/Gradle/缓存）+
   `libopencode2_bin.so`。首次启动只做本地解压/安装，不下载工具链。

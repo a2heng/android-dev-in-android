@@ -7,13 +7,13 @@ description: Create or repair an Android Gradle project on this phone: modules, 
 
 ## Defaults for this device
 
-- AGP **8.5.2**, Gradle **9.8.1** (bundled)
-- `compileSdk 35`, `buildToolsVersion "35.0.2"`
+- AGP **9.5.1**, Gradle **9.9.0** (bundled)
+- `compileSdk 36`, `buildToolsVersion "36.0.0"`
 - `minSdk 24`, `targetSdk 34`
 - Java 17
 - Arm64 only
 
-The build skill forces `buildToolsVersion 35.0.2` through an init script, but
+The build skill forces `buildToolsVersion 36.0.0` through an init script, but
 writing it in `app/build.gradle` makes the project portable.
 
 ## Where projects live
@@ -57,7 +57,7 @@ include ":app"
 Root `build.gradle`:
 
 ```groovy
-plugins { id 'com.android.application' version '8.5.2' apply false }
+plugins { id 'com.android.application' version '9.5.1' apply false }
 ```
 
 `gradle.properties` (required for any AndroidX dependency):
@@ -75,8 +75,8 @@ org.gradle.daemon=false
 plugins { id 'com.android.application' }
 android {
     namespace 'com.example.myapp'
-    compileSdk 35
-    buildToolsVersion '35.0.2'
+    compileSdk 36
+    buildToolsVersion '36.0.0'
     defaultConfig {
         applicationId 'com.example.myapp'
         minSdk 24
