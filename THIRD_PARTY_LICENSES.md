@@ -14,6 +14,12 @@ or builds against third-party software. This file is a summary, not legal advice
 
 No GPL source code from `reference/` is copied into `app/` or `scripts/`.
 
+## Bundled JavaScript
+
+| Component | License | Notes |
+|---|---|---|
+| core-js 3.51.0 segment (`app/src/main/assets/oc-corejs.js`, generated) | MIT | https://github.com/zloirock/core-js — only the modules listed in `scripts/make-webview-shims.js`; regenerated with that script, header kept in the file |
+
 ## Prebuilt binaries shipped in the APK
 
 | Component | License | Source / notice |

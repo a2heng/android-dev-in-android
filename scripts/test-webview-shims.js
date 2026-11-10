@@ -1,22 +1,25 @@
 #!/usr/bin/env node
 /*
- * Prueba el bloque de compatibilidad de app/src/main/assets/oc-early.js sin
- * WebView: borra del motor de Node las APIs modernas (URL.canParse, Promise.try,
- * toSorted...) y comprueba que el script las repone.
+ * Prueba los scripts previos a la SPA (app/src/main/assets/oc-corejs.js y
+ * oc-early.js) sin WebView: borra del motor de Node las APIs modernas
+ * (URL.canParse, Promise.try, toSorted...) y comprueba que se reponen.
  *
  *   node scripts/test-webview-shims.js
  *
  * Motivo: la UI v2 de opencode necesita APIs de Chromium 108-128. Un WebView
  * sin actualizar rompia el arranque con "TypeError: URL.canParse is not a
- * function"; si se anade o cambia un shim, esto avisa antes de compilar.
+ * function"; si se cambia un modulo de core-js o un shim, esto avisa antes de
+ * compilar.
  */
 const assert = require("assert")
 const fs = require("fs")
 const path = require("path")
 
 const root = path.dirname(__dirname)
-const file = path.join(root, "app/src/main/assets/oc-early.js")
-const src = fs.readFileSync(file, "utf8")
+const early = path.join(root, "app/src/main/assets/oc-early.js")
+const corejs = path.join(root, "app/src/main/assets/oc-corejs.js")
+const src = fs.readFileSync(early, "utf8")
+const polyfills = fs.readFileSync(corejs, "utf8")
 
 const logs = []
 globalThis.window = globalThis
@@ -73,7 +76,10 @@ for (const proto of [Array.prototype, String.prototype]) {
 drop(AbortSignal, ["timeout", "any"])
 
 // El script se ejecuta como lo haria el WebView: sin modulos, en global.
+// Primero core-js (/oc-corejs.js) y luego el launcher (/oc-early.js).
+new Function(polyfills)()
 new Function(src)()
+assert.strictEqual(window.__ocEarlyV1, true, "oc-early.js se ejecuto entero")
 
 // URL: era el fallo del arranque de la SPA.
 assert.strictEqual(URL.canParse("https://example.com"), true)
@@ -100,7 +106,7 @@ const grouped = Map.groupBy(list, (n) => (n % 2 ? "odd" : "even"))
 assert.deepStrictEqual(grouped.get("odd"), [1, 3, 5])
 assert.deepStrictEqual(grouped.get("even"), [2, 4])
 const objectGroups = Object.groupBy(list, (n) => (n % 2 ? 1 : "1"))
-assert.deepStrictEqual(Array.from(objectGroups["1"]), [1, 3, 5, 2, 4])
+assert.deepStrictEqual(Array.from(objectGroups["1"]), [1, 2, 3, 4, 5])
 assert.strictEqual(Object.getPrototypeOf(objectGroups), null)
 
 // Objetos y arrays.
@@ -131,7 +137,7 @@ assert.strictEqual("a\uDC00b".toWellFormed(), "a\uFFFDb")
 assert.strictEqual("a\uD83D\uDE00b".toWellFormed(), "a\uD83D\uDE00b")
 
 // Set.
-assert.deepStrictEqual(Array.from(new Set([1, 2]).union([2, 3])), [1, 2, 3])
+assert.deepStrictEqual(Array.from(new Set([1, 2]).union(new Set([2, 3]))), [1, 2, 3])
 assert.deepStrictEqual(Array.from(new Set([1, 2]).intersection(new Set([2, 3]))), [2])
 assert.deepStrictEqual(Array.from(new Set([1, 2]).difference(new Set([2, 3]))), [1])
 assert.deepStrictEqual(Array.from(new Set([1, 2]).symmetricDifference(new Set([2, 3]))), [1, 3])

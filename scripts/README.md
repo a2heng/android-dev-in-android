@@ -36,10 +36,24 @@ HTTPS_PROXY=http://127.0.0.1:10808 python scripts/fetch-opencode.py
 
 ## WebView shims
 
-`app/src/main/assets/oc-early.js` runs before the opencode SPA bundle and fills
-in the APIs that a WebView without updates lacks (`URL.canParse`,
-`Promise.try`, `toSorted`...). To check it without an emulator (it deletes the
-modern APIs from Node and expects the shims to bring them back):
+The v2 UI needs JavaScript APIs that a WebView without updates does not have
+(`URL.canParse`, `Promise.try`, `toSorted`...). Two classic scripts run before
+the SPA bundle, injected in `<head>` by `MainActivity.injectEarlyScript`:
+
+- `app/src/main/assets/oc-corejs.js`: generated core-js bundle with just the
+  needed modules (see `scripts/make-webview-shims.js`);
+- `app/src/main/assets/oc-early.js`: `/provider` cache, picker paths and the
+  `AbortSignal` shims core-js does not cover (core-js is JS-only, not DOM).
+
+Regenerate the polyfills after changing `MODULES` (downloads `core-js-builder`
+and `esbuild` into a temp directory the first time):
+
+```sh
+node scripts/make-webview-shims.js
+```
+
+Check both scripts without an emulator (deletes the modern APIs from Node and
+expects the polyfills to bring them back):
 
 ```sh
 node scripts/test-webview-shims.js

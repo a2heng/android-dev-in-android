@@ -133,8 +133,9 @@ public class MainActivity extends AppCompatActivity {
             + " command -v opencode; opencode --version 2>&1 | head -1; echo setup-noroot-ok\n";
 
     private WebView web;
-    /** JS que se inyecta antes del bundle (cache de /provider y git de proyectos). */
-    private String earlyScriptCache;
+    /** Se lee desde el hilo del WebView y desde la UI: mapa concurrente. */
+    private final java.util.concurrent.ConcurrentHashMap<String, String> scriptCache =
+            new java.util.concurrent.ConcurrentHashMap<>();
     private View boxContent;
     private MaterialCardView cardWeb;
     private TextView txtStatus;
@@ -456,8 +457,11 @@ public class MainActivity extends AppCompatActivity {
                     if (path.startsWith("/auth/") || path.startsWith("/api/")) {
                         return null;
                     }
-                    if ("/oc-early.js".equals(path)) {
-                        byte[] js = earlyScript().getBytes(StandardCharsets.UTF_8);
+                    if ("/oc-corejs.js".equals(path) || "/oc-early.js".equals(path)) {
+                        // Los dos scripts previos al bundle de la SPA: los
+                        // polyfills (core-js) y el launcher.
+                        String name = path.substring(1);
+                        byte[] js = assetScript(name).getBytes(StandardCharsets.UTF_8);
                         Map<String, String> h = new HashMap<>();
                         h.put("Cache-Control", "no-store");
                         return new WebResourceResponse("application/javascript", "utf-8",
@@ -2072,15 +2076,18 @@ public class MainActivity extends AppCompatActivity {
                 raw.getBytes(StandardCharsets.UTF_8));
     }
 
-    private String earlyScript() {
-        if (earlyScriptCache != null) return earlyScriptCache;
-        try (InputStream in = getAssets().open("oc-early.js")) {
-            earlyScriptCache = readAll(in);
+    /** JavaScript de assets/ que se sirve antes del bundle de la SPA. */
+    private String assetScript(String name) {
+        String cached = scriptCache.get(name);
+        if (cached != null) return cached;
+        String body = "";
+        try (InputStream in = getAssets().open(name)) {
+            body = readAll(in);
         } catch (Exception e) {
-            log("oc-early.js no disponible: " + e);
-            earlyScriptCache = "";
+            log(name + " no disponible: " + e);
         }
-        return earlyScriptCache;
+        scriptCache.put(name, body);
+        return body;
     }
 
     private static final class IndexDoc {
@@ -2156,7 +2163,9 @@ public class MainActivity extends AppCompatActivity {
             String state = value == null ? "" : value.replace("\"", "");
             if (state.startsWith("true")) return;
             Log.d("OpenCode", "early missing; injecting late");
-            view.evaluateJavascript(earlyScript(), null);
+            // core-js primero: oc-early.js ya solo anade AbortSignal.
+            view.evaluateJavascript(assetScript("oc-corejs.js"), null);
+            view.evaluateJavascript(assetScript("oc-early.js"), null);
             // Si el motor ya tiene las APIs solo faltaba la cache de fetch.
             if (state.endsWith("true") || earlyReloadTried) return;
             earlyReloadTried = true;
@@ -2165,9 +2174,15 @@ public class MainActivity extends AppCompatActivity {
         });
     }
 
+    /**
+     * Mete los scripts previos en <head>: core-js (APIs que un WebView viejo
+     * no trae) y el launcher (cache de /provider, rutas del selector). Los
+     * dos son classicos, asi que corren antes del bundle type="module".
+     */
     private String injectEarlyScript(String html) {
-        String tag = "<script src=\"/oc-early.js\"></script>";
         int head = html.indexOf("<head>");
+        String tag = "<script src=\"/oc-corejs.js\"></script>"
+                + "<script src=\"/oc-early.js\"></script>";
         if (head >= 0) {
             int at = head + "<head>".length();
             return html.substring(0, at) + tag + html.substring(at);

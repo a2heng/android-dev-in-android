@@ -29,21 +29,16 @@
    *
    * La UI v2 usa APIs recientes: URL.canParse (Chromium 120), Promise.try
    * (128), Promise.withResolvers (119), Map.groupBy (117),
-   * AbortSignal.any (116), Array.prototype.toSorted/with (110)... Un
-   * WebView que no se actualiza (Android 13 de fabrica trae Chromium 108)
-   * lanza TypeError en la primera llamada y la SPA se queda en el error
-   * de arranque. Se completan aqui, que es lo unico que corre antes del
-   * bundle. Todo va con guardas: lo que ya existe no se toca.
+   * Array.prototype.toSorted (110)... Un WebView sin actualizar (Android 13
+   * de fabrica trae Chromium 108) lanzaba TypeError al arrancar y la SPA se
+   * quedaba en "出了点问题".
+   *
+   * Esas APIs las pone /oc-corejs.js (core-js, generado con
+   * scripts/make-webview-shims.js), que se inyecta antes que este fichero.
+   * Aqui solo queda lo que core-js no cubre porque es DOM: AbortSignal.
    */
   var SHIMMED = (function compat() {
     var done = [];
-
-    function toInteger(value) {
-      var n = Number(value);
-      if (n !== n) return 0;
-      if (n === Infinity || n === -Infinity) return n;
-      return n < 0 ? Math.ceil(n) : Math.floor(n);
-    }
 
     function define(owner, name, value) {
       if (!owner || typeof owner[name] === 'function') return;
@@ -59,259 +54,8 @@
       } catch (e) {}
     }
 
-    function copyOf(o, len) {
-      var out = new Array(len);
-      for (var i = 0; i < len; i++) out[i] = o[i];
-      return out;
-    }
-
-    function at(index) {
-      var o = Object(this);
-      var len = o.length >>> 0;
-      var k = toInteger(index);
-      if (k < 0) k += len;
-      if (k < 0 || k >= len) return undefined;
-      return o[k];
-    }
-
-    function findLastIndex(predicate, thisArg) {
-      var o = Object(this);
-      var len = o.length >>> 0;
-      for (var i = len - 1; i >= 0; i--) {
-        if (predicate.call(thisArg, o[i], i, o)) return i;
-      }
-      return -1;
-    }
-
-    function toSorted(compare) {
-      var o = Object(this);
-      return copyOf(o, o.length >>> 0).sort(compare);
-    }
-
-    function toReversed() {
-      var o = Object(this);
-      return copyOf(o, o.length >>> 0).reverse();
-    }
-
-    function toSpliced(start, skipCount) {
-      var o = Object(this);
-      var len = o.length >>> 0;
-      var out = copyOf(o, len);
-      var s = toInteger(start);
-      s = s < 0 ? Math.max(len + s, 0) : Math.min(s, len);
-      var items = Array.prototype.slice.call(arguments, 2);
-      if (arguments.length < 2) {
-        out.splice.apply(out, [s, len - s].concat(items));
-      } else {
-        var dc = toInteger(skipCount);
-        dc = dc < 0 ? 0 : Math.min(dc, len - s);
-        out.splice.apply(out, [s, dc].concat(items));
-      }
-      return out;
-    }
-
-    function withIndex(index, value) {
-      var o = Object(this);
-      var len = o.length >>> 0;
-      var k = toInteger(index);
-      if (k < 0) k += len;
-      if (k < 0 || k >= len) throw new RangeError('Invalid index: ' + index);
-      var out = copyOf(o, len);
-      out[k] = value;
-      return out;
-    }
-
-    function emptySet() {
-      return new Set();
-    }
-
-    function unarySet(fn) {
-      return function (other) {
-        var list = other instanceof Set ? other : new Set(other);
-        return fn(this, list);
-      };
-    }
-
-    function isWellFormed() {
-      var s = String(this);
-      for (var i = 0; i < s.length; i++) {
-        var c = s.charCodeAt(i);
-        if (c >= 0xd800 && c <= 0xdbff) {
-          var next = s.charCodeAt(i + 1);
-          if (!(next >= 0xdc00 && next <= 0xdfff)) return false;
-          i++;
-        } else if (c >= 0xdc00 && c <= 0xdfff) {
-          // Suplente bajo sin pareja: la cadena no esta bien formada.
-          return false;
-        }
-      }
-      return true;
-    }
-
-    function toWellFormed() {
-      var s = String(this);
-      var out = '';
-      for (var i = 0; i < s.length; i++) {
-        var c = s.charCodeAt(i);
-        if (c >= 0xd800 && c <= 0xdbff) {
-          var next = s.charCodeAt(i + 1);
-          if (next >= 0xdc00 && next <= 0xdfff) {
-            out += s.charAt(i) + s.charAt(i + 1);
-            i++;
-          } else {
-            out += '\uFFFD';
-          }
-        } else if (c >= 0xdc00 && c <= 0xdfff) {
-          out += '\uFFFD';
-        } else {
-          out += s.charAt(i);
-        }
-      }
-      return out;
-    }
-
-    // URL.canParse (120) y URL.parse (126): el fallo que rompia el arranque.
-    define(URL, 'canParse', function canParse(input, base) {
-      try {
-        if (arguments.length < 2) new URL(input);
-        else new URL(input, base);
-        return true;
-      } catch (e) {
-        return false;
-      }
-    });
-    define(URL, 'parse', function parse(input, base) {
-      try {
-        return arguments.length < 2 ? new URL(input) : new URL(input, base);
-      } catch (e) {
-        return null;
-      }
-    });
-
-    // Promesas: withResolvers (119) y try (128).
-    define(Promise, 'withResolvers', function withResolvers() {
-      var resolve;
-      var reject;
-      var promise = new Promise(function (res, rej) {
-        resolve = res;
-        reject = rej;
-      });
-      return { promise: promise, resolve: resolve, reject: reject };
-    });
-    define(Promise, 'try', function tryCall(fn) {
-      var args = Array.prototype.slice.call(arguments, 1);
-      return new Promise(function (resolve) {
-        // Si fn lanza, el ejecutor rechaza la promesa.
-        resolve(fn.apply(undefined, args));
-      });
-    });
-
-    // Agrupacion: Object.groupBy / Map.groupBy (117).
-    var groupInto = function (callback) {
-      var groups = new Map();
-      var self = this;
-      var index = 0;
-      var step;
-      var iter = self[Symbol.iterator]();
-      while (!(step = iter.next()).done) {
-        var item = step.value;
-        var key = callback(item, index++);
-        var bucket = groups.get(key);
-        if (bucket) bucket.push(item);
-        else groups.set(key, [item]);
-      }
-      return groups;
-    };
-    define(Map, 'groupBy', function groupBy(items, callback) {
-      return groupInto.call(items, callback);
-    });
-    define(Object, 'groupBy', function groupBy(items, callback) {
-      var groups = groupInto.call(items, callback);
-      var out = Object.create(null);
-      groups.forEach(function (bucket, key) {
-        // La clave de un objeto se coacciona a propiedad (1 y "1" se juntan).
-        var prop = typeof key === 'symbol' ? key : String(key);
-        if (out[prop]) out[prop] = out[prop].concat(bucket);
-        else out[prop] = bucket;
-      });
-      return out;
-    });
-
-    define(Object, 'hasOwn', function hasOwn(object, key) {
-      return Object.prototype.hasOwnProperty.call(object, key);
-    });
-
-    // Array: at (92), findLast/findLastIndex (97) y los "copying" de ES2023.
-    define(Array.prototype, 'at', at);
-    define(Array.prototype, 'findLast', function findLast(predicate, thisArg) {
-      var index = findLastIndex.call(this, predicate, thisArg);
-      return index < 0 ? undefined : this[index];
-    });
-    define(Array.prototype, 'findLastIndex', findLastIndex);
-    define(Array.prototype, 'toSorted', toSorted);
-    define(Array.prototype, 'toReversed', toReversed);
-    define(Array.prototype, 'toSpliced', toSpliced);
-    define(Array.prototype, 'with', withIndex);
-
-    // String: at (92), isWellFormed/toWellFormed (111).
-    define(String.prototype, 'at', at);
-    define(String.prototype, 'isWellFormed', isWellFormed);
-    define(String.prototype, 'toWellFormed', toWellFormed);
-
-    // Set: metodos de conjuntos (122).
-    define(Set.prototype, 'union', unarySet(function (self, other) {
-      var out = new Set(self);
-      other.forEach(function (value) {
-        out.add(value);
-      });
-      return out;
-    }));
-    define(Set.prototype, 'intersection', unarySet(function (self, other) {
-      var out = emptySet();
-      self.forEach(function (value) {
-        if (other.has(value)) out.add(value);
-      });
-      return out;
-    }));
-    define(Set.prototype, 'difference', unarySet(function (self, other) {
-      var out = new Set(self);
-      other.forEach(function (value) {
-        out.delete(value);
-      });
-      return out;
-    }));
-    define(Set.prototype, 'symmetricDifference', unarySet(function (self, other) {
-      var out = new Set(self);
-      other.forEach(function (value) {
-        if (out.has(value)) out.delete(value);
-        else out.add(value);
-      });
-      return out;
-    }));
-    define(Set.prototype, 'isSubsetOf', unarySet(function (self, other) {
-      var ok = true;
-      self.forEach(function (value) {
-        if (!other.has(value)) ok = false;
-      });
-      return ok;
-    }));
-    define(Set.prototype, 'isSupersetOf', unarySet(function (self, other) {
-      var ok = true;
-      other.forEach(function (value) {
-        if (!self.has(value)) ok = false;
-      });
-      return ok;
-    }));
-    define(Set.prototype, 'isDisjointFrom', unarySet(function (self, other) {
-      var ok = true;
-      self.forEach(function (value) {
-        if (other.has(value)) ok = false;
-      });
-      return ok;
-    }));
-
-    // AbortSignal.timeout (103) y AbortSignal.any (116).
     if (typeof AbortSignal === 'function') {
+      // AbortSignal.timeout (Chromium 103) y AbortSignal.any (116).
       define(AbortSignal, 'timeout', function timeout(ms) {
         var controller = new AbortController();
         setTimeout(function () {
@@ -365,6 +109,7 @@
   }
 
   if (SHIMMED.length) dbg('shims ' + SHIMMED.join(','));
+  if (typeof URL.canParse !== 'function') dbg('core-js no cargado');
 
   /*
    * Instalaciones anteriores guardaban el proyecto como /data/user/0/...,
