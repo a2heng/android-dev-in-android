@@ -1,3 +1,34 @@
+# Adia v0.3.1
+
+Android Dev In Android —— 在手机上运行 opencode 和完整的 Android 构建工具链，离线优先。
+
+## 本版重点
+
+- **修复旧 WebView 打不开（Android 13 的「出了点问题」）**：opencode 的 Web UI
+  用到 `URL.canParse`（Chromium 120）、`Promise.try`（128）、`Map.groupBy`（117）、
+  `Array.prototype.toSorted`（110）等新 API。出厂后没更新过 Android System WebView
+  的 Android 13 自带 Chromium 108，一进应用就抛
+  `TypeError: URL.canParse is not a function`，整个界面起不来。
+  现在 APK 在 SPA 之前注入两个脚本：
+  - `oc-corejs.js`：core-js 3.51 的 24 个模块（31 KB），补齐上面这些 API；
+  - `oc-early.js`：只留 `AbortSignal.timeout/any` 这类 core-js 不管的 DOM 补丁，
+    外加原有的 `/provider` 缓存和目录选择器修正。
+- **内核版本进日志**：启动时记一条 `webview Chrome/xxx`，再遇到「出了点问题」
+  一看日志就知道是不是系统 WebView 太旧。
+- **302 之后补注入并重载一次**：v2 首次登录走 `/auth/connect/<code>`，WebView
+  不会对 302 的目标再走拦截器，脚本只能晚到。当检测到内核确实缺这些 API 时，
+  用原认证头重载一次，让脚本进 `<head>` 后再跑 bundle；最多一次，不会循环。
+  内核本来就新的设备不做重载，不会看到闪一下。
+- **文档不再写死本机代理端口**：拉取二进制的示例改成占位符。
+
+## 仍然保持
+
+- 应用名 **Adia**，包名 `com.a2heng.adia`，opencode **2.2.6**。
+- **v2 自动登录**：一次性 `/auth/connect/<code>` 建立会话，不手输密码。
+- **离线工具链**：Termux JDK 21、Android platform 35、aarch64 aapt2、
+  Gradle 9.8.1、Maven 种子缓存、设备内 adb。
+- **22 个内置 skill** 与「无『所有文件访问』权限」的沙箱布局。
+
 # Adia v0.3.0
 
 Android Dev In Android —— 在手机上运行 opencode 和完整的 Android 构建工具链，离线优先。
