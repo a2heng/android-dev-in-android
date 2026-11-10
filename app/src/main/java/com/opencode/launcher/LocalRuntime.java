@@ -402,6 +402,7 @@ public final class LocalRuntime {
                 ? new File(LocalToolbox.prefix(app), "bin")
                 : new File(home, "bin");
         File wrapper = CommandResolver.install(home, nd, tmp, etc, binDir);
+        Log.i(TAG, "motor de comandos: " + CommandResolver.readMode(home));
         // Android no deja hacer execve de scripts en files/ (untrusted_app).
         // El unico sitio ejecutable es nativeLibraryDir, donde va este
         // trampolin; desde ahi se lanza el envoltorio con /system/bin/sh.

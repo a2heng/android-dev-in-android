@@ -38,6 +38,8 @@ public final class CommandResolver {
     public static final String SHELL_NAME = "oc-shell";
     public static final String PROOT_NAME = "oc-proot";
     public static final String NATIVE_ENV_NAME = "oc-native-env.sh";
+    /** Comando que lee/cambia el motor: oc-engine [auto|proot|native|status]. */
+    public static final String ENGINE_NAME = "oc-engine";
 
     private static final String LINKER = "/system/bin/linker64";
     private static final String[] SYSTEM_DIRS = {
@@ -49,16 +51,33 @@ public final class CommandResolver {
             "pkg", "apt", "apt-get", "apt-cache", "apt-key", "dpkg", "dpkg-deb",
             "dpkg-query", "dpkg-trigger", "termux-change-repo", "termux-setup-storage",
             "termux-reload-settings", "termux-services", "proot", "proot-distro",
-            "sshd", "service"
+            "sshd", "service",
+            // Lanza a otros comandos: en nativo el hijo seria el toybox del
+            // sistema (o fallaria con EACCES), en proot es el del prefijo.
+            "xargs"
     };
 
     /**
      * Binarios del prefijo que deben ganar a la version de /system/bin.
+     *
+     * Regla: solo herramientas "hoja" (no lanzan otros binarios del prefijo).
+     * Asi el agente ve las mismas GNU que dentro de proot sin pagar ptrace.
+     * Lo que si lanza ayudantes del prefijo (git, ssh, los scripts de build)
+     * sigue yendo a proot por las otras reglas.
+     *
      * Medido: GNU find tarda 94 ms en 10.059 entradas frente a 158 ms del
      * toybox del sistema; GNU grep ademas soporta mas expresiones.
      */
     private static final Set<String> PREFER_PREFIX = new HashSet<>(Arrays.asList(
-            "find", "grep"
+            // Busqueda y texto (las que mas usa el agente).
+            "find", "grep", "sed", "awk", "diff", "less", "cmp",
+            // Compresion suelta (son el programa, no lanzan a nadie).
+            "gzip", "bzip2", "xz", "zstd",
+            // Coreutils: mismas opciones que en proot. Los nombres son
+            // symlinks a coreutils; la funcion pasa el symlink (no el destino)
+            // para que argv[0] siga siendo el applet correcto.
+            "sort", "uniq", "cut", "tr", "head", "tail", "wc", "stat", "du",
+            "md5sum", "sha1sum", "sha256sum", "base64"
     ));
 
     /** Nombres que no se pueden definir como funcion (builtins o palabras raras). */
@@ -118,11 +137,57 @@ public final class CommandResolver {
         write(new File(binDir, NATIVE_ENV_NAME), nativeEnv(scan.functions, libPath));
         File proot = new File(binDir, PROOT_NAME);
         write(proot, prootScript(home, nd, tmp, etc));
+        File modeFile = new File(new File(home, ".config/opencode-android"), "engine-mode");
+        write(new File(binDir, ENGINE_NAME), engineScript(modeFile));
         File shell = new File(binDir, SHELL_NAME);
-        write(shell, shellScript(scan.prootNames));
+        write(shell, shellScript(scan.prootNames, modeFile));
         Log.i(TAG, "resolvedor listo: " + scan.functions.size() + " nativos, "
                 + scan.prootNames.size() + " a proot; " + shell);
         return shell;
+    }
+
+    /** Motores soportados. "auto" es el reparto por comando; "proot" manda todo al sandbox. */
+    public static final class Mode {
+        public static final String AUTO = "auto";
+        public static final String PROOT = "proot";
+        public static final String NATIVE = "native";
+
+        private Mode() {
+        }
+
+        public static boolean valid(String mode) {
+            return AUTO.equals(mode) || PROOT.equals(mode) || NATIVE.equals(mode);
+        }
+    }
+
+    /** Fichero de una linea (auto|proot|native) que lee oc-shell en cada comando. */
+    public static File modeFile(File home) {
+        return new File(new File(home, ".config/opencode-android"), "engine-mode");
+    }
+
+    public static String readMode(File home) {
+        File file = modeFile(home);
+        if (!file.isFile()) return Mode.AUTO;
+        try {
+            String text = new String(java.nio.file.Files.readAllBytes(file.toPath()),
+                    java.nio.charset.StandardCharsets.UTF_8).trim();
+            return Mode.valid(text) ? text : Mode.AUTO;
+        } catch (IOException e) {
+            return Mode.AUTO;
+        }
+    }
+
+    public static void writeMode(File home, String mode) throws IOException {
+        if (!Mode.valid(mode)) throw new IOException("motor desconocido: " + mode);
+        File file = modeFile(home);
+        File parent = file.getParentFile();
+        if (parent != null && !parent.isDirectory() && !parent.mkdirs()
+                && !parent.isDirectory()) {
+            throw new IOException("no se pudo crear " + parent);
+        }
+        try (FileWriter w = new FileWriter(file, false)) {
+            w.write(mode + "\n");
+        }
     }
 
     private static void write(File file, String body) throws IOException {
@@ -190,8 +255,12 @@ public final class CommandResolver {
                     continue;
                 }
                 if (!seen.add(name)) continue;
+                // Se lanza el SYMLINK, no el destino canonico: los coreutils
+                // de Termux son un solo binario que elige el applet por
+                // argv[0] (head -> coreutils --head). Con el destino se
+                // perderia ese nombre.
                 scan.functions.add(name + "() { LD_LIBRARY_PATH=\"$OC_NATIVE_LIB_PATH\" "
-                        + LINKER + " " + q(target.getAbsolutePath()) + " \"$@\"; }");
+                        + LINKER + " " + q(file.getAbsolutePath()) + " \"$@\"; }");
             }
         }
         scan.prootNames.addAll(proot);
@@ -236,7 +305,8 @@ public final class CommandResolver {
         return out.toString();
     }
 
-    private static String shellScript(Set<String> prootNames) {
+    private static String shellScript(Set<String> prootNames, File modeFile) {
+        String modePath = q(modeFile.getAbsolutePath());
         StringBuilder cases = new StringBuilder();
         for (String cmd : prootNames) {
             if (cases.length() > 0) cases.append('|');
@@ -268,6 +338,20 @@ public final class CommandResolver {
                 + "if [ -z \"$CMD\" ]; then exec /system/bin/sh; fi\n"
                 + "case \"$0\" in */*) OWN=${0%/*} ;; *) OWN=. ;; esac\n"
                 + "APP_FILES=${OWN%/usr/bin}\n"
+                // Motor elegido por el usuario: auto (reparto por comando),
+                // proot (todo al sandbox) o native (fuerza nativo, para medir).
+                + "OC_MODE=auto\n"
+                + "if [ -r " + modePath + " ]; then read OC_MODE < " + modePath + "; fi\n"
+                + "if [ \"$OC_MODE\" = \"proot\" ]; then\n"
+                + "  exec /system/bin/sh \"$OWN/" + PROOT_NAME + "\" \"$CMD\"\n"
+                + "fi\n"
+                + "if [ \"$OC_MODE\" = \"native\" ]; then\n"
+                + "  if [ -f \"$OWN/" + NATIVE_ENV_NAME + "\" ]; then . \"$OWN/" + NATIVE_ENV_NAME + "\"; fi\n"
+                + "  OC_ENGINE=native\n"
+                + "  export OC_ENGINE\n"
+                + "  eval \"$CMD\"\n"
+                + "  exit $?\n"
+                + "fi\n"
                 + "HAS_GIT=0\n"
                 + "GIT_HELPER=0\n"
                 + "for RAW in $CMD; do\n"
@@ -303,12 +387,40 @@ public final class CommandResolver {
                 + "export OC_ENGINE\n"
                 + "eval \"$CMD\"\n"
                 + "RC=$?\n"
-                + "if [ $RC -eq 127 ]; then exec /system/bin/sh \"$OWN/" + PROOT_NAME + "\" \"$CMD\"; fi\n"
+                // 127: no encontrado; 126: no ejecutable (execve de app data
+                // rechazado por Android). Los dos casos se reintentan en proot.
+                + "if [ $RC -eq 127 ] || [ $RC -eq 126 ]; then\n"
+                + "  exec /system/bin/sh \"$OWN/" + PROOT_NAME + "\" \"$CMD\"\n"
+                + "fi\n"
                 + "exit $RC\n";
     }
 
-    private static String prootScript(File home, File nd, File tmp, File etc) {
-        File prefix = new File(home.getParentFile(), "usr");
+    /**
+     * oc-engine: consulta o cambia el motor desde el propio agente.
+     * El cambio aplica al siguiente comando, sin reiniciar el servidor.
+     */
+    private static String engineScript(File modeFile) {
+        String path = q(modeFile.getAbsolutePath());
+        return "#!/system/bin/sh\n"
+                + "# Generado por CommandResolver: motor de los comandos del agente.\n"
+                + "#   oc-engine status -> auto|proot|native\n"
+                + "#   oc-engine proot  -> todo dentro del sandbox\n"
+                + "#   oc-engine auto   -> reparto por comando (por defecto)\n"
+                + "#   oc-engine native -> fuerza nativo; solo para medir\n"
+                + "CURRENT=auto\n"
+                + "if [ -r " + path + " ]; then read CURRENT < " + path + "; fi\n"
+                + "case \"${1:-status}\" in\n"
+                + "  status|get|\"\") echo \"$CURRENT\" ;;\n"
+                + "  auto|proot|native)\n"
+                + "    echo \"$1\" > " + path + " || exit 1\n"
+                + "    echo \"engine=$1\" ;;\n"
+                + "  *)\n"
+                + "    echo \"uso: oc-engine [auto|proot|native|status]\" >&2\n"
+                + "    exit 2 ;;\n"
+                + "esac\n";
+    }
+
+    private static String prootScript(File home, File nd, File tmp, File etc) {        File prefix = new File(home.getParentFile(), "usr");
         File prootTmp = new File(tmp, "proot");
         //noinspection ResultOfMethodCallIgnored
         prootTmp.mkdirs();
