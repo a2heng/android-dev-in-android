@@ -121,12 +121,14 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 - [x] Adia 侧 ContentProvider + 权限
 - [x] 前端启动自动发现本机 Adia 并连接
 - [x] 运行模式 `auto/native/proot` + `-PadiaRuntime`
-- [ ] 单 APK 融合（把前端抽成 `:client` library，由 Adia 直接依赖）
+- [x] 前端拆成 `:client` library（opencode-mobile 0.4.0）
+- [x] Adia `settings.gradle` include 子模块的 `:client`，**不需要安装 Mobile APK**
 - [ ] 用 16 KB 页设备实测 proot 模式
 
 ## 5.1 单 APK 融合方案（下一步）
 
-目标：一个 APK 里同时有「后端」和「前端」，不再需要两个包、也不需要 ContentProvider。
+目标：一个 APK 里同时有「后端」和「前端」，不需要两个包、不需要 ContentProvider，
+也不需要安装 Mobile APK（Adia 哲学：开箱即用）。前端以 `:client` library 直接编进 Adia。
 
 ```text
 android-dev-in-android/

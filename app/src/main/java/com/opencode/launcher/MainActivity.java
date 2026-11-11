@@ -2201,7 +2201,15 @@ public class MainActivity extends AppCompatActivity {
      *  v2 exige una cookie de sesion: se obtiene un link /auth/connect/<code>
      *  y se carga ese, en vez de la raiz (que mostraria la pantalla de login). */
     private volatile String v2PairingUrl;
+    /** true: ya se mostro el frontend Compose embebido (no se vuelve a montar). */
+    private boolean mobileUiShown;
     private synchronized void loadChatUrl() {
+        // Un solo APK: frontend Compose embebido (:client), sin WebView ni app aparte.
+        if ("mobile".equals(BuildConfig.UI_MODE) && !mobileUiShown) {
+            mobileUiShown = true;
+            showMobileUi();
+            return;
+        }
         if (!urlLoading && web.getUrl() == null) {
             urlLoading = true;
             String cached = v2PairingUrl;
@@ -2217,6 +2225,26 @@ public class MainActivity extends AppCompatActivity {
                 });
             }, "v2-pair").start();
         }
+    }
+
+    private void showMobileUi() {
+        final String pwd = LocalRuntime.serverPassword(this);
+        runOnUiThread(() -> {
+            // setFullscreen toca las vistas del layout viejo; se hace antes de
+            // reemplazar el content view por Compose.
+            try {
+                setFullscreen(true);
+            } catch (Throwable ignored) {
+            }
+            try {
+                com.a2heng.opencode.mobile.OpenCodeMobileHost.show(this, URL, pwd);
+            } catch (Throwable t) {
+                Log.w("OpenCodeLocal", "frontend Compose fallo; se usa el WebView: " + t, t);
+                mobileUiShown = false;
+                urlLoading = false;
+                loadChatUrl();
+            }
+        });
     }
 
     /** Generacion de la peticion de entrar: una nueva anula la espera anterior. */
@@ -4045,6 +4073,13 @@ private void refreshAppUpdateBtn() {
     }
 
     private void setFullscreen(boolean full) {
+        // Con el frontend Compose embebido no hay pantalla completa: se dejan
+        // las barras del sistema visibles (la UI ya respeta sus insets).
+        if (mobileUiShown) {
+            fullscreen = false;
+            exitImmersive();
+            return;
+        }
         fullscreen = full;
         int vis = full ? View.GONE : View.VISIBLE;
         findViewById(R.id.appBar).setVisibility(vis);
@@ -4467,6 +4502,7 @@ private void refreshAppUpdateBtn() {
     @Override
     public void onWindowFocusChanged(boolean hasFocus) {
         super.onWindowFocusChanged(hasFocus);
+        if (mobileUiShown) return;
         if (hasFocus && fullscreen) {
             web.resumeTimers();
             enterImmersive();

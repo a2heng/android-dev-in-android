@@ -9,7 +9,7 @@ def adiaRequireSigning = findProperty("adiaRequireSigning") == "1"
 
 android {
     namespace 'com.opencode.launcher'
-    compileSdk 36
+    compileSdk 37
 
     defaultConfig {
         applicationId "com.a2heng.adia"
@@ -24,6 +24,10 @@ android {
         // La rama feat/proot-mobile-ui compila con -PadiaRuntime=proot.
         def adiaRuntime = (findProperty("adiaRuntime") ?: "auto").toString()
         buildConfigField "String", "RUNTIME_MODE", "\"${adiaRuntime}\""
+        // UI por defecto: mobile = frontend Compose embebido (:client);
+        // web = WebView clasico (solo como respaldo).
+        def adiaUi = (findProperty("adiaUi") ?: "mobile").toString()
+        buildConfigField "String", "UI_MODE", "\"${adiaUi}\""
         // v1: canal 4.x del launcher y runtime opencode 1.x.
         buildConfigField "boolean", "V2", "false"
         ndk {
@@ -106,6 +110,9 @@ android {
 }
 
 dependencies {
+    implementation project(':client')
+    // El tema del cliente usa Theme.SplashScreen; sus attrs deben entrar en el APK.
+    implementation 'androidx.core:core-splashscreen:1.0.1'
     implementation 'androidx.appcompat:appcompat:1.8.0'
     implementation 'com.google.android.material:material:1.12.0'
     // Descompresion xz en Java: Android no trae el binario xz y el tar de

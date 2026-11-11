@@ -1,4 +1,4 @@
-// OpenCode Android 4.0.x.
+// Adia — un APK: runtime local (opencode + Termux/proot) + frontend Compose.
 pluginManagement {
     repositories {
         google()
@@ -15,3 +15,8 @@ dependencyResolutionManagement {
 }
 rootProject.name = "Adia"
 include(":app")
+
+// Frontend (OpenCode Mobile) vive como submodulo y se compila dentro de este APK:
+// no hay que instalar ninguna app aparte.
+include(":client")
+project(":client").projectDir = file("mobile/opencode-mobile/client")
