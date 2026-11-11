@@ -2237,6 +2237,8 @@ public class MainActivity extends AppCompatActivity {
             } catch (Throwable ignored) {
             }
             try {
+                // adjustResize: el sistema encoge la ventana y el input sube con
+                // el teclado. La UI Compose ya respeta los insets que recibe.
                 com.a2heng.opencode.mobile.OpenCodeMobileHost.show(this, URL, pwd);
             } catch (Throwable t) {
                 Log.w("OpenCodeLocal", "frontend Compose fallo; se usa el WebView: " + t, t);
