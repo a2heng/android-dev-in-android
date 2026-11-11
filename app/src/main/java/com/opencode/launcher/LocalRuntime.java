@@ -363,6 +363,7 @@ public final class LocalRuntime {
             AppLog.init(app);
             cleanManagedGit(app);
             pruneTransientCaches(app);
+            ensureRootfs(app);
             if (nativeEnabled(app) && nativeAvailable(app)) {
                 try {
                     if (startNative(app, port)) {
@@ -544,6 +545,98 @@ public final class LocalRuntime {
      * agente, y devuelve su salida. Lo usa el servidor de herramientas para
      * comprobar el entorno y para el shim "pkg".
      */
+    /** Raiz virtual para el explorador de archivos del frontend: prefijo Termux. */
+    public static File rootfsDir(Context ctx) {
+        File rf = new File(homeDir(ctx), "rootfs");
+        mkdirs(rf);
+        return rf;
+    }
+
+    /**
+     * Construye ~/rootfs como una raiz estilo Linux con enlaces al prefijo:
+     * bin/, sbin/, lib/, etc/, usr/, var/ apuntan al prefijo de Termux;
+     * home/ y root/ al HOME real; system/, data/, sdcard/ al Android real.
+     * El explorador del frontend usa esta carpeta como "/".
+     */
+    public static void ensureRootfs(Context ctx) {
+        File home = homeDir(ctx);
+        File rf = rootfsDir(ctx);
+        link(rf, "usr", "../usr");
+        link(rf, "bin", "usr/bin");
+        link(rf, "sbin", "usr/bin");
+        link(rf, "lib", "usr/lib");
+        link(rf, "lib64", "usr/lib");
+        link(rf, "libexec", "usr/libexec");
+        link(rf, "etc", "usr/etc");
+        link(rf, "include", "usr/include");
+        link(rf, "share", "usr/share");
+        link(rf, "var", "usr/var");
+        link(rf, "opt", "usr/opt");
+        link(rf, "tmp", "usr/tmp");
+        link(rf, "home", ".");
+        link(rf, "root", ".");
+        link(rf, "cache", "../cache");
+        link(rf, "system", "/system");
+        link(rf, "vendor", "/vendor");
+        link(rf, "data", "/data");
+        link(rf, "sdcard", "/storage/emulated/0");
+        link(rf, "mnt", "/mnt");
+        link(rf, "proc", "/proc");
+        link(rf, "dev", "/dev");
+        mkdirs(new File(home, "usr/tmp"));
+    }
+
+    private static void link(File dir, String name, String target) {
+        File f = new File(dir, name);
+        try {
+            if (f.exists()) return;
+            android.system.Os.symlink(target, f.getAbsolutePath());
+        } catch (Exception ignored) {
+        }
+    }
+
+    /**
+     * Shell local para el terminal del frontend embebido: proot + prefix/bin/script,
+     * que abre un PTY real y ejecuta bash. Asi el terminal de Adia no depende del
+     * PTY de opencode (roto en Android por bun-pty).
+     */
+    public static Process localShell(Context ctx) throws IOException {
+        Context app = ctx.getApplicationContext();
+        if (!prootAvailable(app)) throw new IOException("runtime proot no disponible");
+        if (!LocalToolbox.installed(app)) throw new IOException("toolbox no instalado");
+        File nd = new File(app.getApplicationInfo().nativeLibraryDir);
+        File home = homeDir(app);
+        File tmp = new File(app.getCacheDir(), "tmp");
+        File etc = new File(home, ".oc-etc");
+        File lib = new File(home, "lib");
+        File prootTmp = new File(tmp, "proot");
+        mkdirs(home);
+        mkdirs(tmp);
+        mkdirs(etc);
+        mkdirs(lib);
+        mkdirs(prootTmp);
+        prepareNetworkOverrides(home, etc);
+        copyIfNeeded(new File(nd, "libstdcxx.so"), new File(lib, "libstdc++.so.6"));
+        copyIfNeeded(new File(nd, "libgcc_s.so"), new File(lib, "libgcc_s.so.1"));
+        File musl = new File(nd, "libld_musl.so");
+        File proot = new File(nd, "libproot.so");
+        File loader = new File(nd, "libproot_loader.so");
+        Map<String, String> env = buildEnv(app, home, tmp, etc, lib, nd, loader, prootTmp);
+        List<String> cmd = prootCmd(app, home, tmp, etc, musl, proot, env,
+                home.getAbsolutePath());
+        cmd.add(LocalToolbox.SANDBOX_PREFIX + "/bin/script");
+        cmd.add("-q");
+        cmd.add("-c");
+        cmd.add("exec bash -l");
+        cmd.add("/dev/null");
+        ProcessBuilder pb = new ProcessBuilder(cmd);
+        pb.directory(home);
+        pb.redirectErrorStream(true);
+        pb.environment().clear();
+        pb.environment().putAll(env);
+        return pb.start();
+    }
+
     public static String runInSandbox(Context ctx, String command, int timeoutMs) {
         try {
             Context app = ctx.getApplicationContext();

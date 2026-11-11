@@ -143,7 +143,17 @@ public class MobileFrontendActivity extends AppCompatActivity {
         mounted = true;
         String pwd = LocalRuntime.serverPassword(this);
         try {
-            com.a2heng.opencode.mobile.OpenCodeMobileHost.show(this, URL, pwd);
+            LocalRuntime.ensureRootfs(this);
+            String fsRoot = LocalRuntime.rootfsDir(this).getAbsolutePath();
+            com.a2heng.opencode.mobile.LocalShellSpawner shell = () -> {
+                try {
+                    return LocalRuntime.localShell(this);
+                } catch (Throwable t) {
+                    Log.w(TAG, "no se pudo abrir el shell local: " + t);
+                    return null;
+                }
+            };
+            com.a2heng.opencode.mobile.OpenCodeMobileHost.show(this, URL, pwd, shell, fsRoot);
         } catch (Throwable t) {
             Log.w(TAG, "frontend Compose fallo; se abre el WebView", t);
             mounted = false;

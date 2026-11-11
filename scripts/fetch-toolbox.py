@@ -20,7 +20,7 @@ MIRRORS = [
 DEFAULT_SET = [
     "bash", "coreutils", "curl", "git", "python", "python-pip", "nodejs",
     "openssh", "make", "cmake", "ninja", "pkg-config", "binutils", "clang",
-    "wget", "openjdk-21",
+    "wget", "util-linux", "openjdk-21",
     # 16 KB-aligned optional build tools. aapt2 is already bundled separately;
     # these cover AIDL projects and on-device adb without a 4 KB binary.
     "aidl", "android-tools",
