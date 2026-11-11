@@ -19,7 +19,11 @@ android {
         versionName adiaVersionName
         buildConfigField "int", "SERVER_PORT", "4096"
         // Version del binario empaquetado en jniLibs. Actualizarla al cambiarlo.
-        buildConfigField "String", "OPENCODE_VERSION", "\"2.2.6\""
+        buildConfigField "String", "OPENCODE_VERSION", "\"2.2.7\""
+        // Modo de ejecucion por defecto: auto | native | proot.
+        // La rama feat/proot-mobile-ui compila con -PadiaRuntime=proot.
+        def adiaRuntime = (findProperty("adiaRuntime") ?: "auto").toString()
+        buildConfigField "String", "RUNTIME_MODE", "\"${adiaRuntime}\""
         // v1: canal 4.x del launcher y runtime opencode 1.x.
         buildConfigField "boolean", "V2", "false"
         ndk {

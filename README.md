@@ -5,7 +5,7 @@
 
 - 应用名：**Adia**
 - 包名：`com.a2heng.adia`
-- opencode：**2.2.6**（musl arm64，原生运行）
+- opencode：**2.2.7**（musl arm64，原生运行）
 - 目标：把「opencode + JDK + Android SDK + Gradle + 调试工具」全部塞进一个可离线
   使用的 APK，不依赖电脑、不依赖 Termux 外部应用、首次启动不下载工具链。
 
@@ -53,6 +53,21 @@ release 构建默认对**随包分发的 64 位 native 库**做严格检查；32
 python3 app/src/main/assets/skills/android-build/scripts/check-16kb.py \
   app/src/main/jniLibs/arm64-v8a
 ```
+
+## 与 OpenCode Mobile 整合（实验支线 `feat/proot-mobile-ui`）
+
+Adia 负责**本机后端**，前端交给自己的原生 Compose 客户端
+[`opencode-mobile`](https://github.com/a2heng/opencode-mobile)：
+
+- 前端以 **git submodule** 放在 `mobile/opencode-mobile`（只读参考 + 源码）。
+- Adia 暴露只读 `ContentProvider`（`content://<applicationId>.local-server/info`），
+  在 `com.a2heng.adia.permission.LOCAL_SERVER_INFO`（normal）保护下返回
+  `{url, username, password, running}`；前端启动时自动拿到并连上
+  `127.0.0.1:4096/4098`，不用再手输密码。
+- 运行模式 `auto / native / proot`，编译期用 `-PadiaRuntime=proot` 固定成
+  Termux 风格的 proot 沙箱。
+
+细节、协议和构建步骤见 [`docs/mobile-integration.md`](docs/mobile-integration.md)。
 
 ## 现在能做什么
 
@@ -164,7 +179,7 @@ bash ~/.config/opencode/skills/android-build/scripts/build.sh /path/to/project d
 ```sh
 # 1) 补 opencode 运行时（仓库不提交 208 MB 的二进制）
 curl -L -o /tmp/oc.tar.gz \
-  https://github.com/anomalyco/opencode/releases/download/v2.2.6/opencode-linux-arm64-musl.tar.gz
+  https://github.com/anomalyco/opencode/releases/download/v2.2.7/opencode-linux-arm64-musl.tar.gz
 tar -xzf /tmp/oc.tar.gz -C /tmp
 cp /tmp/opencode app/src/main/jniLibs/arm64-v8a/libopencode2_bin.so
 chmod 755 app/src/main/jniLibs/arm64-v8a/libopencode2_bin.so

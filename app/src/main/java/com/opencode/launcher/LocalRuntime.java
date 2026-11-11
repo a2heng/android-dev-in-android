@@ -37,6 +37,10 @@ public final class LocalRuntime {
     private static final Object LOCK = new Object();
     private static final String PREF = "app";
     private static final String PREF_NATIVE = "native_runtime_enabled";
+    private static final String PREF_RUNTIME_MODE = "runtime_mode";
+    public static final String RUNTIME_AUTO = "auto";
+    public static final String RUNTIME_NATIVE = "native";
+    public static final String RUNTIME_PROOT = "proot";
     private static final long NATIVE_HEALTH_TIMEOUT_MS = 45_000;
     private static final Object GIT_LOCK = new Object();
     private static final Object SDCARD_LOCK = new Object();
@@ -256,8 +260,35 @@ public final class LocalRuntime {
 
     /** Interruptor de seguridad: true usa el servidor nativo; si falla, proot. */
     public static boolean nativeEnabled(Context ctx) {
+        String mode = runtimeMode(ctx);
+        if (RUNTIME_PROOT.equals(mode)) return false;
+        if (RUNTIME_NATIVE.equals(mode)) return true;
         return ctx.getApplicationContext().getSharedPreferences(PREF, Context.MODE_PRIVATE)
                 .getBoolean(PREF_NATIVE, true);
+    }
+
+    /** Modo de ejecucion efectivo: preferencia del usuario > valor de compilacion. */
+    public static String runtimeMode(Context ctx) {
+        SharedPreferences sp = ctx.getApplicationContext()
+                .getSharedPreferences(PREF, Context.MODE_PRIVATE);
+        String saved = sp.getString(PREF_RUNTIME_MODE, null);
+        if (RUNTIME_PROOT.equals(saved) || RUNTIME_NATIVE.equals(saved)
+                || RUNTIME_AUTO.equals(saved)) {
+            return saved;
+        }
+        String built = BuildConfig.RUNTIME_MODE;
+        if (RUNTIME_PROOT.equals(built) || RUNTIME_NATIVE.equals(built)) return built;
+        return RUNTIME_AUTO;
+    }
+
+    /**
+     * Cambia el modo y reinicia el servidor para que el siguiente arranque lo
+     * use. Solo cambia el modo; no toca el resto de la configuracion.
+     */
+    public static void setRuntimeMode(Context ctx, String mode) {
+        Context app = ctx.getApplicationContext();
+        app.getSharedPreferences(PREF, Context.MODE_PRIVATE)
+                .edit().putString(PREF_RUNTIME_MODE, mode).apply();
     }
 
     public static void setNativeEnabled(Context ctx, boolean enabled) {
