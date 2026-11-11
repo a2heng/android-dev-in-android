@@ -548,7 +548,10 @@ public final class LocalRuntime {
     /** Raiz virtual para el explorador de archivos del frontend: prefijo Termux. */
     public static File rootfsDir(Context ctx) {
         File rf = new File(homeDir(ctx), "rootfs");
-        mkdirs(rf);
+        try {
+            mkdirs(rf);
+        } catch (IOException ignored) {
+        }
         return rf;
     }
 
@@ -583,7 +586,10 @@ public final class LocalRuntime {
         link(rf, "mnt", "/mnt");
         link(rf, "proc", "/proc");
         link(rf, "dev", "/dev");
-        mkdirs(new File(home, "usr/tmp"));
+        try {
+            mkdirs(new File(home, "usr/tmp"));
+        } catch (IOException ignored) {
+        }
     }
 
     private static void link(File dir, String name, String target) {
