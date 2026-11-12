@@ -191,7 +191,7 @@ public final class LocalToolbox {
      * barata cuando todo esta bien: solo hace stat de siete rutas.</p>
      */
     public static synchronized boolean repairEssentials(Context ctx) {
-        if (!installed(ctx) || !hasBundledAssets(ctx)) {
+        if (!hasBundledAssets(ctx)) {
             // Sin .deb empaquetados (build desde el repo) no hay nada offline
             // que extraer; pkg/apt se encargan de la instalacion por red.
             return installed(ctx) && missingEssentials(ctx).isEmpty();
