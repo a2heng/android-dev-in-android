@@ -7,7 +7,8 @@ description: Use the bundled Termux userland on this phone (bash, git, python, n
 
 Adia ships a Termux-style userland inside the APK. It is not the Termux app:
 there is no separate Termux install, and you do not need one. The toolbox is on
-`PATH`, but **on native mode its binaries still need proot** (see below).
+`PATH`, but **its binaries only work inside proot** (the release engine enforces
+this; see below).
 
 ## Native vs proot (read this first)
 
@@ -20,54 +21,48 @@ There are two kinds of binaries on the phone:
    `$HOME/toolchain`. They live in app-private storage; Android returns
    `Permission denied` (EACCES) if a native process tries to `execve` them.
 
-The opencode server may run natively (`oc-engine status` = `auto`, `proot` or
-`fast`). The shell wrapper is **deny-by-default** in `auto`: any command that
-lives in the Termux prefix (except the leaf tools `grep/sed/find/...`) is sent
-to proot as a whole, and any command containing `$`, a prefix path, `./`,
-`../` or a script extension is also sent to proot.
+The shell is **transparent**: `oc-engine status` is `auto` (default) or
+`proot`, and both mean **the whole command runs inside proot**. The agent does
+not classify commands, does not need a list of “safe” commands, and does not
+need to wrap normal commands in `oc-proot`.
 
-That means these work without extra wrapping:
+Just write the command:
 
 ```sh
+pwd
+ls -la
 git status
 python3 app.py
 bash scripts/build.sh
 adb devices
 pkg install -y jq
+am start -n com.example/.MainActivity
 ```
 
-Variables are also handled now, but the explicit form is still the clearest
-and is the one to use inside longer recipes:
+Variables, `cd`, pipelines and compound recipes also work directly:
 
 ```sh
-oc-proot 'ADB="$HOME/toolchain/platform-tools/adb"; "$ADB" devices'
-oc-proot 'cd "$HOME/workspace/App" && ./gradlew assembleDebug'
+ADB="$HOME/toolchain/platform-tools/adb"; "$ADB" devices
+cd "$HOME/workspace/App" && ./gradlew assembleDebug
 ```
 
 Rules:
 
-- Check `oc-engine status`:
-  - `auto`: safe default; prefix binaries are routed to proot automatically.
-    Use `oc-proot '<command>'` when you want the whole recipe in the sandbox
-    explicitly (variables, `cd`, many commands).
-  - `proot`: every command already runs inside the sandbox; run it normally and
-    do **not** nest another `oc-proot`.
-  - `fast`: measurement-only mode. It may execute a prefix binary outside proot
-    and reproduce `library "libreadline.so.8" not found`. Run `oc-engine auto`
-    before doing real work.
-- `oc-proot '<command>'` — run one entire command in the sandbox. One argument,
-  quoted. This is the safe explicit form for Termux/toolchain binaries and for
-  scripts that call them.
-- A literal prefix path also works (the wrapper sees it):
-  `/data/data/com.termux/files/usr/bin/adb devices`.
-- `oc-engine proot` switches the whole session to proot (slower; use when many
-  commands need it); restore with `oc-engine auto`.
+- `auto` / `proot`: everything enters proot. No command whitelist, no
+  heuristic. This is the supported path.
+- `fast`: **debug builds only**, measurement-only. It runs natively and can
+  reproduce `library "libreadline.so.8" not found`. Release ignores it;
+  `oc-engine fast` is rejected in release.
+- `<command>` is optional. It is useful when you want to make the
+  sandbox boundary explicit, or when you are in a non-Adia native context.
+  It accepts one quoted argument and **preserves the caller's `$PWD`**
+  (fallback `$HOME`).
 - Prefer the Termux `adb` at `$PREFIX/bin/adb` (matching aarch64 build) over
-  `$HOME/toolchain/platform-tools/adb`; both must run inside proot.
+  `$HOME/toolchain/platform-tools/adb`; both are inside proot in normal use.
 - Never `chmod +x` and exec an app-private binary from Java/`ProcessBuilder`;
-  Android denies it. Use the shell wrapper or proot.
-- If a path/library error still appears, run `oc-doctor` first and then
-  `oc-repair`; both are documented in `docs/commands.md` and `docs/paths.md`.
+  Android denies it. Use the shell.
+- If a path/library error still appears, run `oc-doctor`, then `oc-repair`.
+  Both are documented in `docs/commands.md` and `docs/paths.md`.
 
 Do not mix their libraries: an Android binary must not inherit Termux
 `LD_LIBRARY_PATH`, and a Termux binary must not be launched with the Android
@@ -78,12 +73,21 @@ linker by hand.
 | What | Path |
 |---|---|
 | Home seen by the agent | `$HOME` = the app-private home (`/data/data/<pkg>/files/home`; always use `$HOME`) |
+| Project root | `$HOME/workspace`; the session cwd is usually a directory under it |
 | Termux prefix | `$PREFIX` = `/data/data/com.termux/files/usr` |
-| Shared toolchain | `$HOME/toolchain` (JDK 21, SDK 36, Gradle 9.9.0) |
+| JDK 21 | `$PREFIX/lib/jvm/java-21-openjdk` (not `$HOME/toolchain`) |
+| Android SDK | `$HOME/toolchain/android-sdk` (SDK 36, build-tools 36.0.0) |
+| Gradle | `$HOME/toolchain/gradle` (9.9.0 distribution) |
 | Gradle cache | `$HOME/toolchain/gradle-home` (`GRADLE_USER_HOME`) |
 | Maven mirror | `$HOME/toolchain/m2` |
-| Temp | `/tmp` (mapped to the app cache) |
+| Runtime data | `$HOME/.local/share/opencode` (DB, logs, shell records) |
+| Default config | `$HOME/.config/opencode` |
+| Native config | `$HOME/.config/opencode-android` (skills copied here too) |
+| Temp | `/tmp` inside proot, mapped to `$TMPDIR` (`cache/tmp`) |
 | Shared storage | `$HOME/sdcard` only when the phone is rooted and the bind mount exists |
+
+`/` and `/tmp/opencode` are **not** available in the Adia file browser: the app
+cannot read the Android root, and `/tmp/opencode` is not a real directory.
 
 Rules:
 
@@ -204,12 +208,12 @@ termux-am start ...
   binary was launched outside proot, or the prefix is missing a library
   (classically `libreadline.so.8`). Run `oc-engine status` (must be `auto` or
   `proot`), then `oc-doctor` and `oc-repair`. For an explicit command use
-  `oc-proot '<command>'`. `auto` already routes prefix binaries; `fast` does
-  not, so never use `fast` for real work.
+  `<command>`. `auto` runs the whole command in proot; `fast` does
+  not, and release disables `fast` entirely.
 - **`Permission denied` / `inaccessible or not found` / `exec format error`** —
   a Termux/toolchain ELF or script was executed directly from the app data
   directory by an Android process (often through a shell variable such as
-  `ADB="$HOME/..."`). Move the whole command into `oc-proot '...'`; do not
+  `ADB="$HOME/..."`). Move the whole command into `...`; do not
   `chmod +x` and exec it from a Java `ProcessBuilder`.
 - **`command not found` for a bundled tool** — check `echo $PATH`; the prefix
   must be first. In a script started by an Android service, source

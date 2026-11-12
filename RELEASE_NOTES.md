@@ -1,3 +1,32 @@
+# Adia v0.3.6
+
+Android Dev In Android —— 在手机上运行 opencode 和完整的 Android 构建工具链，离线优先。
+
+## 本版重点：命令对使用者透明
+
+- **`auto` 不再做命令分类**：整条命令无条件进入 proot。没有
+  `PROOT_COMMANDS`、没有 `SAFE_NATIVE`、没有“看起来像 Termux 路径才路由”的
+  启发式。agent 只写命令，不需要知道背后是原生还是沙箱。
+- **`proot` 与 `auto` 等价**，只是显式写法；`oc-proot` 变成可选的显式工具，
+  不再要求 agent 记住“哪些命令要包它”。
+- **`fast` 只在 debug 存在**：release 构建里 `ALLOW_FAST=false`，即使模式文件
+  残留 `fast` 也按 `auto` 执行；`oc-engine fast` 在 release 直接拒绝。
+- **`oc-proot` 继承调用者 `$PWD`**（v0.3.5 已修）：`pwd`、`$PWD/project` 在会话
+  目录里解析，不再跳回 HOME。
+- **skills 全部改成直接写命令**：`adb ...`、`bash scripts/...`，不再要求
+  `oc-proot '...'`；`android-build` 明确 JDK 在 `$PREFIX`、SDK/Gradle 在
+  `$HOME/toolchain`。
+- 新增 **命令 ↔ 路径矩阵**：每个命令类别对应的真实二进制、执行位置、cwd、
+  关键路径；这张表是原理解释，不是 agent 需要维护的白名单。
+- 新增 **路径审计**：区分真路径、设计上的副本（两个 config 目录、两个 adb）
+  和真正的冗余（旧 `$HOME/bin/oc-*`，已自动清理）。
+
+## 仍然保持
+
+- v0.3.5 的文件页根目录 HOME、去除 `/` 和 `/tmp/opencode`、会话列表去重。
+- v0.3.4 的前缀自愈、`bootstrap.txt` 先解 bash/readline、`oc-doctor`/`oc-repair`。
+- 应用名 **Adia**，包名 `com.a2heng.adia`，opencode **2.2.7**。
+
 # Adia v0.3.5
 
 Android Dev In Android —— 在手机上运行 opencode 和完整的 Android 构建工具链，离线优先。

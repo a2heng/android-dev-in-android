@@ -48,10 +48,11 @@ files at startup. It never deletes project `build/` directories automatically.
 
 ## Workflow
 
-> If `oc-engine status` is `auto` or `native`, run the whole command through
-> `oc-proot`, e.g. `oc-proot 'bash <skill-dir>/scripts/build.sh /path debug'`.
+> `auto` already sends `bash <skill-dir>/scripts/build.sh ...` to proot. You can
+> also be explicit: `bash <skill-dir>/scripts/build.sh /path debug`.
 > The scripts start with `#!/data/data/com.termux/files/usr/bin/bash` and must
-> not be executed natively from app-private storage.
+> not be executed natively from app-private storage. `oc-proot` preserves the
+> caller's `$PWD`, so relative project paths work. `fast` is debug-only.
 
 ### 1. One-time toolchain setup
 
@@ -92,12 +93,13 @@ Tell the user the APK path and the build result. Do not invent a path: use the
 
 ## Do not bypass the script
 
-The agent shell can be **native** or **proot**. `PREFIX` is only valid inside
-proot; in a native shell the real prefix is `$HOME/../usr`. The script detects
-this itself. Never export `/data/data/com.termux/files/usr` by hand in a
-native shell and never rebuild the Gradle command from scratch: that path does
-not exist outside proot and produces the "tmpdir does not exist" and
-"`PREFIX/tmp` cannot be created" failures.
+The agent shell can be **auto** (`oc-shell` picks) or **proot**. `PREFIX` is
+only valid inside proot; in a native shell the real prefix is `$HOME/../usr`.
+The script detects this itself. Never export `/data/data/com.termux/files/usr`
+by hand in a native shell and never rebuild the Gradle command from scratch:
+that path does not exist outside proot and produces the "tmpdir does not exist"
+and "`PREFIX/tmp` cannot be created" failures. `oc-proot` now preserves the
+caller's cwd, so `$PWD/project` is reliable.
 
 If the script fails, fix the **project** and re-run it. Only use
 `OC_USE_WRAPPER=1` or raw Gradle as a last resort, and keep
@@ -117,8 +119,8 @@ If the script fails, fix the **project** and re-run it. Only use
 
 ## Notes and limits
 
-- SDK platform is 35 by default. For `compileSdk 36` projects, install platform
-  36 and use a matching aapt2 (see `scripts/setup-toolchain.sh`).
+- SDK platform is 36 by default. For `compileSdk 37` projects, install platform
+  37 and use a matching aapt2 (see `scripts/setup-toolchain.sh`).
 - No NDK/CMake support in this version.
 - The first build can take 10+ minutes and heat the phone; later builds are
   incremental.

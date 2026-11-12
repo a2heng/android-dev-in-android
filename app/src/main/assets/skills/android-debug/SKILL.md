@@ -5,14 +5,12 @@ description: Debug Android apps on this phone with logcat, crash/ANR analysis, i
 
 # Android Debug (on-device)
 
-Everything runs on the phone. The Termux `adb` and the toolchain `adb` both
-live in app-private storage; Android returns `Permission denied` if a native
-process executes them. **Run every adb command through `oc-proot`** (or use a
-literal prefix path, which the shell wrapper routes automatically).
+Everything runs on the phone. Just run `adb` normally: `auto` executes the
+whole command inside proot, where both adb binaries and their libraries work.
+You do not need to wrap it or classify the command.
 
 Prefer the 16 KB Termux `adb` (`$PREFIX/bin/adb`); it is the matching aarch64
-build. `$HOME/toolchain/platform-tools/adb` also works, but only inside proot —
-do not assume a shell variable was routed.
+build. `$HOME/toolchain/platform-tools/adb` is the fallback.
 
 ## When to use
 
@@ -31,20 +29,19 @@ The cleanest way is Android's **Wireless debugging**:
 3. On the phone (in a shell):
 
 ```sh
-oc-proot 'adb pair 127.0.0.1:<pair-port> <6-digit-code>'
-oc-proot 'adb connect 127.0.0.1:<connect-port>'
-oc-proot 'adb devices'
+adb pair 127.0.0.1:<pair-port> <6-digit-code>
+adb connect 127.0.0.1:<connect-port>
+adb devices
 ```
 
-If you need a variable (or a compound command), keep the **whole command**
-inside `oc-proot` so it expands inside the sandbox:
+Variables and compound commands work too; `auto` sends the whole line to proot:
 
 ```sh
-oc-proot 'ADB="$HOME/toolchain/platform-tools/adb"; "$ADB" devices'
+ADB="$HOME/toolchain/platform-tools/adb"; "$ADB" devices
 ```
 
-Do **not** write `ADB=...; "$ADB" ...` outside proot: the shell wrapper sees
-only `$ADB`, runs it natively, and Android answers `Permission denied`.
+`oc-proot '<command>'` is still available when you want to make the sandbox
+boundary explicit, but it is not required.
 
 If `adb devices` shows a device, continue. If not, ask the user to repeat the
 pairing step; do not guess ports.
@@ -52,7 +49,7 @@ pairing step; do not guess ports.
 ## 2. Install and launch
 
 ```sh
-oc-proot 'bash <skill-dir>/scripts/install-run.sh /path/to/app-debug.apk com.example.app'
+bash <skill-dir>/scripts/install-run.sh /path/to/app-debug.apk com.example.app
 ```
 
 The script installs, clears logcat, launches the launcher activity, waits a
@@ -61,8 +58,8 @@ few seconds, and prints the filtered log.
 ## 3. Capture a crash
 
 ```sh
-oc-proot 'bash <skill-dir>/scripts/logcat.sh com.example.app 15'
-oc-proot 'bash <skill-dir>/scripts/crash.sh com.example.app'
+bash <skill-dir>/scripts/logcat.sh com.example.app 15
+bash <skill-dir>/scripts/crash.sh com.example.app
 ```
 
 Look for:

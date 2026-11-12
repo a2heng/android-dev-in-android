@@ -68,7 +68,7 @@ PY
 | `XDG_RUNTIME_DIR` | `$HOME/.run` | 运行时 |
 | opencode 配置 | `$HOME/.config/opencode` | 用户配置、`AGENTS.md` |
 | Adia 注入配置 | `$HOME/.config/opencode-android` | `opencode.json`、`engine-mode`、skills |
-| engine 模式 | `$HOME/.config/opencode-android/engine-mode` | `auto` / `proot` / `fast` |
+| engine 模式 | `$HOME/.config/opencode-android/engine-mode` | `auto` / `proot`；`fast` 仅 debug |
 | 工作区 | `$HOME/workspace` | 服务器默认项目根 |
 | 共享工具链 | `$HOME/toolchain` | JDK、SDK、Gradle、Maven 种子 |
 | Gradle 用户目录 | `$HOME/toolchain/gradle-home` | `GRADLE_USER_HOME` |
@@ -209,7 +209,8 @@ proot 由 `LocalRuntime` 启动，bind 表如下（`CommandResolver.prootScript`
 
 ## 6. 不变量（改代码前必须保持）
 
-1. **任何 Termux ELF/脚本不得在真实空间直接执行**，除 §7 的叶子工具。
+1. **任何 Termux ELF/脚本不得在真实空间直接执行**。`auto` 无条件把整条命令
+   送进 proot；只有 debug 的 `fast` 例外（§7），release 禁用。
 2. `$PREFIX` 必须始终能解析出 §4 的 7 个文件；每次启动都检查。
 3. `bootstrap.txt` 必须包含 §4 的包，先于 `dpkg` 解包。
 4. `nativeLibraryDir` 相关的路径只能在运行时生成，不得写死到脚本或文档示例。
@@ -219,15 +220,17 @@ proot 由 `LocalRuntime` 启动，bind 表如下（`CommandResolver.prootScript`
    `$HOME`。否则 `pwd`/`$PWD/project` 会在 HOME 下找项目，出现“文件明明
    写了却 build 找不到”的假路径。
 7. `oc-proot` 必须幂等：`OC_ENGINE=proot` 时不得再次调用 proot。
-8. 新增“可能 exec 子进程”的工具时，不得加入 `SAFE_NATIVE`。
+8. `auto` 不得重新引入 token 白名单或“看起来像 Termux 命令才走 proot”的
+   判断；命令分派必须对调用者透明。
 
 违反任一条，`libreadline.so.8` / `Permission denied` 就会回来。
 
 ---
 
-## 7. 唯一允许的原生例外：叶子工具
+## 7. 原生例外：只有 debug 的 `fast`（记录用）
 
-`CommandResolver.SAFE_NATIVE`：
+正式模式 `auto` / `proot` 下，**没有**“叶子工具原生执行”这条路径；所有命令
+统一进 proot。以前为了测速保留过一张叶子工具表：
 
 ```
 find grep sed awk diff less cmp
@@ -235,7 +238,7 @@ gzip bzip2 xz zstd
 sort uniq cut tr head tail wc stat du md5sum sha1sum sha256sum base64
 ```
 
-它们由 `oc-native-env.sh` 生成同名函数：
+这张表现在只用于 **debug 构建的 `fast` 模式**，由 `oc-native-env.sh` 生成：
 
 ```sh
 name() { LD_LIBRARY_PATH="$OC_NATIVE_LIB_PATH" /system/bin/linker64 '<前缀里的真实路径>' "$@"; }
@@ -243,10 +246,11 @@ name() { LD_LIBRARY_PATH="$OC_NATIVE_LIB_PATH" /system/bin/linker64 '<前缀里�
 
 - 用 `linker64`（不是直接 exec），绕开 Android 的 `execve` 限制；
 - 显式给 `$PREFIX/lib`，绕开写死的 `DT_RUNPATH`；
-- **只选不 exec 子进程的工具**；`xargs`、`make`、`git`、`bash`、`python` 都**不在**列表里。
+- release 构建里 `ALLOW_FAST=false`，`fast` 不可用。
 
-新增工具时：如果它会启动别的程序（编译器、包管理器、脚本解释器、git 辅助
-进程），**不要**加进 `SAFE_NATIVE`，让 `auto` 把它送进 proot。
+**为什么不再用于 auto**：任何“按命令名判断”的机制都会漏；漏一个就会出现
+`libreadline` 或 `Permission denied`。让调用者透明地写命令、机制统一进 proot，
+比维护一张永远不完整的白名单更可靠。
 
 ---
 
@@ -262,10 +266,10 @@ oc-repair                 # 缺文件时从 APK 离线补齐
 
 | 现象 | 原因 | 处理 |
 |---|---|---|
-| `library "libreadline.so.8" not found` | Termux ELF 在 proot 外执行，或前缀缺 `readline` | `oc-repair`；确认 `oc-engine` 不是 `fast`；不要直接执行 `$PREFIX/bin/bash` |
-| `Permission denied` / `inaccessible or not found` | 直接 exec 应用私有目录的 ELF/脚本 | 用 `oc-proot '<整条命令>'`，或用 `auto` 让包装器处理 |
+| `library "libreadline.so.8" not found` | Termux ELF 在 proot 外执行，或前缀缺 `readline` | `oc-repair`；release 已忽略 `fast`；不要直接执行 `$PREFIX/bin/bash` |
+| `Permission denied` / `inaccessible or not found` | 绕过 `oc-shell` 直接 exec 应用私有目录的 ELF/脚本 | 走正常 `auto`；不要从 Java/`ProcessBuilder` 直接 exec |
 | `pkg: command not found` | `termux-tools` 缺失 | `oc-repair` |
-| `bash: ...: No such file or directory` | shebang 指向的前缀不存在（在 proot 外） | 整条命令放 `oc-proot` |
+| `bash: ...: No such file or directory` | shebang 指向的前缀不存在（在 proot 外） | 正常 `auto` 不会发生；确认没有绕过 `oc-shell` |
 | `proot: la caja de herramientas aun se esta instalando` | 首次安装未完成 | 等通知，或看 `files/logs/adia.log` |
 | `java.io.tmpdir doesn't exist` | `$PREFIX/tmp` 不存在 | 构建脚本已改用 `$HOME/.cache/tmp`，不要手建 `$PREFIX/tmp` |
 | Gradle 找不到 SDK | `local.properties` 指错 | 用 `android-build` skill 的 `build.sh`，它会写真实路径 |

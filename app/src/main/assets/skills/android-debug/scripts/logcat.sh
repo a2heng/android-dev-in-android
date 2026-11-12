@@ -2,14 +2,12 @@
 # Capture logcat for a package after launching it.
 # Usage: logcat.sh <package> [seconds] [activity]
 set -eu
-# IMPORTANT: run through proot, e.g.
-#   oc-proot 'bash <this-script> <args>'
-# adb lives in app-private storage; native exec gives Permission denied.
+# Run it normally: auto executes the whole command in proot.
+# If called from a native shell (debug fast), it re-execs itself below.
 : "${HOME:?HOME is not set}"
 
-# Re-exec inside proot if launched natively. adb is in app-private storage;
-# native exec returns Permission denied. When already inside proot, OC_ENGINE=proot
-# and oc-proot itself is idempotent, so this is safe.
+# Fallback for a native/debug shell: re-exec in proot. When already inside
+# proot, OC_ENGINE=proot and oc-proot is idempotent, so this is safe.
 if [ "${OC_ENGINE:-}" != "proot" ]; then
   P="${PREFIX:-$HOME/../usr}"
   exec /system/bin/sh "$P/bin/oc-proot" "bash '$0' $*"

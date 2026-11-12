@@ -15,7 +15,7 @@
 |---|---|---|---|
 | `oc-shell` | OpenCode shell wrapper | 宿主 `/system/bin/sh` | **内部**：opencode 的 `shell` 配置指向它；不要手写调用 |
 | `oc-proot` | OpenCode proot runner | 宿主 → proot | 把**一整条命令**放进 Termux 沙箱执行 |
-| `oc-engine` | OpenCode engine | 沙箱（幂等） | 查看/切换命令引擎：`auto` / `proot` / `fast` |
+| `oc-engine` | OpenCode engine | 沙箱（幂等） | 查看/切换命令引擎：`auto` / `proot`；`fast` 仅 debug |
 | `oc-doctor` | OpenCode doctor | 沙箱 | 诊断路径、必需文件、proot、Java 状态 |
 | `oc-repair` | OpenCode repair | 沙箱 | 从 APK 离线补齐缺失的 bash/readline 等 |
 | `oc-native-env.sh` | OpenCode native environment | 被 `oc-shell` source | 定义叶子工具的 `linker64` 函数；不要直接执行 |
@@ -31,144 +31,114 @@
 ### 2.1 用法
 
 ```sh
-oc-engine status     # 输出一个词：auto / proot / fast
-oc-engine auto       # 安全模式（默认、推荐）
-oc-engine proot      # 整条命令都进沙箱
-oc-engine fast       # 旧的分派方式，只用于测速
+oc-engine status     # 输出一个词：auto / proot（debug 还可能是 fast）
+oc-engine auto       # 默认、推荐
+oc-engine proot      # 和 auto 等价，只是显式写出来
+oc-engine fast       # 仅 debug 构建；release 会拒绝并保持 auto
 oc-engine help       # 显示完整说明
 ```
 
 `native` 是旧名字，仍接受，但会写成 `fast`。安装新版本时，磁盘里的
-`engine-mode=native` 会**自动迁移成 `auto`**，避免旧设置把 bug 带回来。
+`engine-mode=native` 会**自动迁移成 `auto`**。
 
-### 2.2 三种模式
+### 2.2 两种正式模式
 
 | 模式 | 行为 | 适用 |
 |---|---|---|
-| `auto`（默认） | **拒绝优先**：命令里出现任何 Termux 前缀命令（除叶子工具）就整条进 proot；只有系统命令和叶子工具原生执行 | 日常、agent、构建、终端 |
-| `proot` | 每条命令都进 proot | 兼容性优先、批量脚本、排障 |
-| `fast` | 旧版按命令名分派；可能把 `bash`/`python` 等漏在 proot 外 | **只用于测速**，不要用于工作 |
+| `auto`（默认） | **整条命令进入 proot**。不做 token 分类，不维护“哪些命令走 proot”的名单，agent 不需要知道命令背后是什么 | 日常、agent、构建、终端 |
+| `proot` | 与 `auto` 完全相同，显式写法 | 排障、脚本里想写清楚 |
+| `fast` | 仅 debug 测速；整个命令原生执行 | 开发测量，release 不可用 |
 
-`fast` 会复现 `library "libreadline.so.8" not found`，这是保留它作为对照的原因，
-不是推荐用法。
+**设计原则**：命令对使用者透明。用户/agent 只写命令；`oc-shell` 无条件把
+整条命令交给 `oc-proot`。分类、前缀、linker、LD_LIBRARY_PATH 都由机制内部处理，
+不要求调用方记住“这个命令该不该包 oc-proot”。
 
----
+`fast` 会复现 `library "libreadline.so.8" not found`；它只保留给开发测量。
+release 构建里 `ALLOW_FAST = BuildConfig.DEBUG`，因此：
 
-## 3. `oc-shell` 的 `auto` 分派算法（逐条）
-
-`oc-shell` 由 opencode 作为 `shell` 调用（参数形如 `-c "<command>"`）。它先
-`unset LD_LIBRARY_PATH LD_PRELOAD`，再按以下顺序判断：
-
-1. **模式**：
-   - `proot` → 整条命令交给 `oc-proot`，结束。
-   - `fast` / `native` → source `oc-native-env.sh`，原生 `eval`，结束。
-   - `auto` → 继续。
-2. 把命令按空白切成 token，去掉引号、括号、`; | &`。
-3. 任意 token 命中 **`PROOT_NAMES`**（前缀里除叶子工具外的命令）→ 整条进 proot。
-4. 任意 token 含**字面量 Termux 前缀**、`$APP_FILES`、`$HOME` → 整条进 proot。
-5. 任意 token 含 **`$` 或反引号** → 整条进 proot（变量可能藏住二进制路径）。
-6. 任意 token 形如 `./x`、`../x`、`*.sh`、`*.bash`、`*.py`、`*.js`、`*.mjs`、
-   `*.cjs`、`*.ts` → 整条进 proot（脚本可能再启动前缀工具）。
-7. 否则：source `oc-native-env.sh`，原生 `eval`。
-8. 原生返回 **126**（Android 拒绝 exec）或 **127**（找不到）→ 自动重试 `oc-proot`。
-
-### 3.1 例子
-
-| 输入 | 结果 | 原因 |
-|---|---|---|
-| `grep foo file` | 原生 | 叶子工具 |
-| `cat file \| grep foo` | 原生 | `cat` 是系统、`grep` 是叶子 |
-| `ls -la /sdcard` | 原生 | 系统 toybox |
-| `sed -i s/a/b/ f` | 原生 | 叶子工具 |
-| `git status` | proot | `git` 在前缀，且会启动 helper |
-| `bash script.sh` | proot | `bash` 在前缀 |
-| `sh -c 'bash x'` | proot | token `bash` |
-| `python3 x.py` | proot | `python3` 在前缀 |
-| `node app.js` | proot | `node` 在前缀 |
-| `npm install` | proot | `npm` 是前缀脚本 |
-| `pkg install jq` | proot | `pkg` 是前缀脚本 |
-| `adb devices` | proot | `adb` 在前缀 |
-| `./gradlew assembleDebug` | proot | `./` 路径 |
-| `bash ~/.config/.../build.sh` | proot | `bash` + `$HOME` |
-| `ADB="$HOME/x"; "$ADB" devices` | proot | token 含 `$` |
-| `echo git` | proot | 过度路由，安全但慢；可接受 |
-| `am start -n a/b` | 原生 | 系统命令；若被误判为前缀会重试 |
-
-> 过度路由（例如 `echo git` 进 proot）只损失速度；**漏路由会直接坏**。所以
-> 判断宁可偏保守。
-
-### 3.2 `PROOT_NAMES` 怎么生成
-
-`CommandResolver.scan()` 在每次启动时扫描 `$PREFIX/bin`：
-
-- 跳过 `.`、`oc-*` 和非法名字；
-- 加入固定的 `PROOT_COMMANDS`（见 §4）；
-- 加入**只存在于前缀、且不在 `SAFE_NATIVE`、不是 shell builtin** 的命令；
-- 同时给所有可执行的 ELF 生成 `oc-native-env.sh` 函数（`fast` 模式仍可用）。
-
-因此新装的包（`pkg install`）在**下次启动**后会自动被扫描到，不需要改代码。
+- 就算模式文件里残留 `fast`，`oc-shell` 也按 `auto` 执行；
+- `oc-engine fast` 返回 2，不写模式文件。
 
 ---
 
-## 4. 固定的 proot 命令表（`PROOT_COMMANDS`）
+## 3. `oc-shell` 的行为（透明分派）
 
-这些命令无论是否在前缀里都强制进 proot：
+`oc-shell` 由 opencode 作为 `shell` 调用（参数形如 `-c "<command>"`）。逻辑只有：
 
-```text
-pkg apt apt-get apt-cache apt-key dpkg dpkg-deb dpkg-query dpkg-trigger
-termux-change-repo termux-setup-storage termux-reload-settings termux-services
-proot proot-distro sshd service xargs
-```
+1. 解析 `-c` / `-lc`，拿到完整命令字符串；
+2. 读 `engine-mode`（缺省 `auto`）；
+3. 如果是 `fast`/`native` **且**当前是 debug 构建 → 原生 `eval`（测量用）；
+4. 其他情况（`auto`、`proot`，以及 release 下的 `fast`）→
+   `exec /system/bin/sh "$OWN/oc-proot" "$CMD"`。
 
-另外固定加入：
-
-```text
-oc-doctor oc-repair oc-engine
-```
-
-原因：
-
-- `pkg/apt/dpkg` 必须看到 Termux 前缀和 dpkg 数据库；
-- `termux-*` 脚本内部会调用前缀工具；
-- `xargs` 会 spawn 子命令，原生子命令会绕过函数；
-- `oc-doctor`/`oc-repair` 检查的是沙箱路径，在沙箱里运行最准确；
-- `oc-engine` 写的是 bind 进来的真实文件，在沙箱里写同样生效。
-
-`git` 的所有子命令（clone/fetch/pull/push/submodule/commit/merge/rebase/
-cherry-pick/revert/am/send-email/difftool/mergetool/credential/maintenance/gc/
-repack/prune）在旧版里还要单独判断；新版 `auto` 直接把 `git` 整体送 proot，
-不再维护这张子命令表。
-
----
-
-## 5. 叶子工具（唯一允许原生执行的前缀程序）
-
-`SAFE_NATIVE`：
-
-```text
-find grep sed awk diff less cmp
-gzip bzip2 xz zstd
-sort uniq cut tr head tail wc stat du
-md5sum sha1sum sha256sum base64
-```
-
-规则：
-
-1. 只允许**不会 exec 其他程序**的工具；
-2. 必须通过 `linker64` + `LD_LIBRARY_PATH=$PREFIX/lib:...` 启动；
-3. 新增工具若会启动子进程（编译器、解释器、构建工具、包管理器、git 辅助），
-   **不得**加入此表；
-4. 加之前先问：它会不会 `exec`？会 → 不进。
-
-`oc-native-env.sh` 为每个叶子工具生成：
+没有 token 扫描、没有命令白名单、没有“看起来像 Termux 路径”的判断。
+因此下面这些命令都不需要手动包 `oc-proot`：
 
 ```sh
-sed() { LD_LIBRARY_PATH="$OC_NATIVE_LIB_PATH" /system/bin/linker64 \
-  '/data/data/<pkg>/files/usr/bin/sed' "$@"; }
+pwd
+ls -la
+git status
+python3 app.py
+bash scripts/build.sh
+adb devices
+pkg install -y jq
+am start -n com.example/.MainActivity
 ```
 
-注意传的是**前缀里的 symlink 路径**，不是 canonical 目标；Termux 的 coreutils
-靠 `argv[0]` 选择 applet，传错会报 invalid option。
+`oc-proot` 仍然保留，用于：
+
+- 想显式声明“整条命令在沙箱里”；
+- 在非 Adia 的 native 上下文里手动进入沙箱；
+- 写复杂 recipe 时让读者一眼看出边界。
+
+但它**不再是 agent 必须掌握的知识**。这是本版的设计目标。
+
+### 3.1 cwd
+
+`oc-proot` 用调用者的 `$PWD` 作为 `proot -w`；只有目录不存在时才回退
+`$HOME`。所以在 `$HOME/workspace/测试` 里执行 `pwd`、`git status`、
+`bash "$PWD/DenoiseLab"` 都指向会话目录，不会突然跑到 HOME。
+
+---
+
+## 4. 为什么不再维护 `PROOT_COMMANDS`
+
+旧版维护了一张“这些命令必须进 proot”的表（`pkg/apt/git/xargs/...`），
+再加规则扫描前缀。问题是：**任何列表都会漏**。漏一个命令，用户就会看到
+`libreadline.so.8` 或 `Permission denied`；而用户不应该为这个列表负责。
+
+现在：
+
+- 所有命令统一进 proot，表只作为**文档/原理记录**；
+- 需要知道“某个命令为什么要 proot”时，查 §4.1 的原理表；
+- 不再有 `PROOT_COMMANDS`、`SAFE_NATIVE`、`SAFE_NATIVE` 运行时判断。
+
+### 4.1 原理表（记录用，不是分派依据）
+
+| 类别 | 例子 | 为什么必须 proot |
+|---|---|---|
+| Termux 用户态 | `bash` `git` `python` `node` `pkg` `apt` `dpkg` `ssh` `curl` `clang` `adb` | ELF 的 `DT_RUNPATH` 写死 `/data/data/com.termux/files/usr/lib`；只有 proot 里这个路径存在 |
+| 前缀脚本 | `npm` `pip` `termux-*` `build.sh` | shebang 指向前缀的 bash，必须在挂载了前缀的命名空间里执行 |
+| 构建链 | `gradle` `java` `aapt2` `aidl` | JDK/Gradle 会再启动前缀里的子进程 |
+| 包管理器 | `pkg` `apt` `dpkg` | 需要完整的 dpkg DB、`/var/lib/dpkg`、`/tmp` 映射 |
+| 设备 API | `termux-battery-status` 等 | 前缀脚本 + 本地 HTTP |
+| 系统命令 | `am` `pm` `dumpsys` `logcat` | 也能在 proot 里跑；Adia 在 `$PREFIX/bin` 放了包装，先 `unset LD_LIBRARY_PATH` 再 exec `/system/bin/*` |
+
+> 这张表解释“为什么安全”，不是让 agent 用来判断“这条命令要不要包
+> oc-proot”。判断已经由机制统一做完了。
+
+---
+
+## 5. 前缀工具在哪里运行
+
+- **auto / proot**：全部在 proot 内。`$PREFIX` 是
+  `/data/data/com.termux/files/usr`，`$HOME` 仍是真实 HOME，`$PWD` 继承调用者。
+- **fast（仅 debug）**：全部原生；`oc-native-env.sh` 为 ELF 生成
+  `linker64` 函数，`LD_LIBRARY_PATH` 只在那次调用里生效。它只用于测量，
+  不进入 release。
+
+这意味着 agent 不需要记住“grep 原生、git 走 proot、xargs 走 proot”这类规则。
+命令写出来，`auto` 统一进沙箱。
 
 ---
 
@@ -204,7 +174,8 @@ oc-engine help
 - `status` 只输出一个词，方便脚本判断：`[ "$(oc-engine status)" = auto ]`。
 - 写文件 `$HOME/.config/opencode-android/engine-mode`；下一条命令立即生效，
   不需要重启服务器。
-- `fast` / `native` 会输出警告到 stderr：仅测速。
+- `fast` / `native` 仅 debug：会输出警告到 stderr。release 下 `oc-engine fast`
+  直接报错并保持 `auto`，不会写出 `fast` 到模式文件。
 
 ### 6.3 `oc-doctor`
 
@@ -218,6 +189,7 @@ oc-doctor
 2. 7 个必需文件的 `OK` / `MISSING`；
 3. 在 proot 里实测：
    - `echo proot-ok`
+   - `echo PWD=$PWD`（应与外层 cwd 一致）
    - `echo PREFIX=$PREFIX`
    - `bash -c "echo bash-ok"`
    - `git --version`
@@ -245,14 +217,15 @@ oc-repair
 - opencode 的 `shell` 配置指向 `libocshell.so` 跳板，跳板再执行
   `$TERMUX_HOME/bin/oc-shell`；
 - 参数形如 `-c "<command>"`、`-lc "<command>"`；也接受 `-l`/`--login`；
+- `auto`/`proot` 下无条件 `exec oc-proot "$CMD"`；`fast` 仅在 debug 走原生；
 - **不是给人手动调用的**；排障时用 `oc-engine` / `oc-doctor`。
 
-### 6.6 `oc-native-env.sh`（内部）
+### 6.6 `oc-native-env.sh`（内部，仅 fast/debug）
 
-- 由 `oc-shell` 在原生路径 source；
-- 定义 §5 的叶子工具函数；
+- 只有 `fast`/`native`（debug）由 `oc-shell` source；
+- 为前缀 ELF 生成 `linker64` 函数，供测速使用；
 - 设置 `OC_NATIVE_LIB_PATH=$PREFIX/lib:$HOME/lib:nativeLibraryDir`；
-- 不要直接 `sh oc-native-env.sh` 期待它执行命令。
+- `auto`/`proot` 不 source 它；不要直接执行它。
 
 ---
 
@@ -297,7 +270,7 @@ termux-sensor-list
 
 ## 8. Termux 工具分类（默认离线包）
 
-| 类别 | 命令 | 默认路由 |
+| 类别 | 命令 | 执行位置 |
 |---|---|---|
 | shell | `bash` `sh`（前缀版） | proot |
 | 包管理 | `pkg` `apt` `apt-get` `dpkg` | proot |
@@ -307,32 +280,59 @@ termux-sensor-list
 | Java | `java` `javac` `keytool` | proot |
 | 网络 | `curl` `wget` | proot |
 | Android | `adb` `aidl` `aapt2`（toolchain） | proot / 构建脚本 |
-| 文本/搜索 | `grep` `sed` `awk` `find` `sort` `uniq` `cut` `tr` `head` `tail` `wc` `diff` `less` `cmp` | 原生（叶子） |
-| 压缩 | `gzip` `bzip2` `xz` `zstd` | 原生（叶子） |
-| 校验 | `md5sum` `sha1sum` `sha256sum` `base64` | 原生（叶子） |
+| 文本/搜索 | `grep` `sed` `awk` `find` `sort` `uniq` `cut` `tr` `head` `tail` `wc` `diff` `less` `cmp` | proot |
+| 压缩 | `gzip` `bzip2` `xz` `zstd` | proot |
+| 校验 | `md5sum` `sha1sum` `sha256sum` `base64` | proot |
 | 其他前缀命令 | `rg` `jq` `tree` `htop` `gdb` `strace` … | proot |
 
-> 表的最后一行是重点：**新装的任何前缀命令默认 proot**。只有明确验证过“不会
-> spawn 子进程”的叶子工具才可能进 `SAFE_NATIVE`。
+> 新装的任何前缀命令也自动 proot；没有需要 agent 维护的白名单。表中所有类别
+> 都由 `oc-shell` 统一送进沙箱。
 
 ---
 
+## 8.1 命令 ↔ 路径矩阵（真正用到的组合）
+
+| 命令 / 场景 | 真实二进制 | 执行方式 | cwd | 关键路径 |
+|---|---|---|---|---|
+| `bash -lc '...'` | `$PREFIX/bin/bash` | proot | `$PWD`（会话目录） | `LD_LIBRARY_PATH=$PREFIX/lib` |
+| `git ...` | `$PREFIX/bin/git` | proot | `$PWD` | `$PREFIX/libexec/git-core` |
+| `python3 ...` | `$PREFIX/bin/python3` | proot | `$PWD` | `$PREFIX/lib/python3.*` |
+| `node/npm ...` | `$PREFIX/bin/node` | proot | `$PWD` | `$PREFIX/lib/node_modules` |
+| `pkg/apt/dpkg ...` | `$PREFIX/bin/pkg` 等 | proot | `$PWD` | dpkg DB `$PREFIX/var/lib/dpkg` |
+| `adb ...` | `$PREFIX/bin/adb` | proot | `$PWD` | 备选 `$HOME/toolchain/platform-tools/adb` |
+| `./gradlew ...` | 项目脚本 | proot | `$PWD` | JDK `$PREFIX/lib/jvm/java-21-openjdk` |
+| `build.sh <项目>` | skill 脚本 | proot | `$PWD` | SDK `$HOME/toolchain/android-sdk`、Gradle `$HOME/toolchain/gradle`、缓存 `$HOME/toolchain/gradle-home` |
+| `am/pm/settings/dumpsys` | `/system/bin/...`（经 `$PREFIX/bin` 包装） | proot；包装先 unset 污染变量 | `$PWD` | 不继承 Termux `LD_LIBRARY_PATH` |
+| `grep/sed/find/sort...` | `$PREFIX/bin/...` | proot | `$PWD` | `$PREFIX/lib`（proot 的 LD_LIBRARY_PATH） |
+| `oc-proot '...'` | `oc-proot` | 宿主 → proot | **调用者 `$PWD`** | 前缀 bind 到 Termux 路径 |
+| `oc-doctor` / `oc-repair` | `$PREFIX/bin/oc-*` | proot | `$PWD` | HTTP `127.0.0.1:SERVER_PORT+100` |
+| 本机终端 | `$PREFIX/bin/bash` | proot + `script` PTY | 启动时 `$HOME` | `$PREFIX/bin/script` |
+| 文件页 | opencode `/api/fs` | 原生 Java/Kotlin | 根 `$HOME` | 不暴露真实 `/` |
+| 新建会话 | opencode `/api/fs/list` | 原生 Java/Kotlin | 选中的项目目录 | `~`/`HOME`、`项目区`=`$HOME/workspace` |
+
+规则：
+
+- 所有 shell 命令统一在 proot 里跑；agent 不需要判断。
+- 系统命令在 proot 里通过 `$PREFIX/bin` 的包装先清理
+  `LD_LIBRARY_PATH`/`LD_PRELOAD`，再 exec `/system/bin/*`。
+- 构建类命令必须让 `build.sh` 解析 JDK/SDK/Gradle，不要手写路径。
+- `oc-proot` 的 cwd 继承调用者；相对路径 `$PWD/项目` 是可靠的。
+
 ## 9. 写命令的规则（给 agent 和脚本作者）
 
-1. 优先交给 `auto`；它已经把前缀命令送进 proot。
-2. 命令里有**变量**、**整段脚本**、**复合逻辑**时，用 `oc-proot '<整条>'`：
+1. **直接写命令**。`auto` 无条件把整条命令送进 proot，不需要判断命令类型。
+2. 变量、`cd`、复合逻辑都直接写；`oc-proot '<整条>'` 是可选的显式写法，
+   不是必须的前置知识：
    ```sh
-   oc-proot 'ADB="$HOME/toolchain/platform-tools/adb"; "$ADB" devices'
-   oc-proot 'cd ~/workspace/App && ./gradlew assembleDebug'
+   ADB="$HOME/toolchain/platform-tools/adb"; "$ADB" devices
+   cd "$HOME/workspace/App" && ./gradlew assembleDebug
    ```
-3. 不要写 `ADB=...; "$ADB"` 到外层再执行；变量会藏住路径。
-4. 不要 `chmod +x` 后从 Java/`ProcessBuilder` 直接执行应用私有文件。
-5. 脚本 shebang 可以写 `#!/data/data/com.termux/files/usr/bin/bash`，但**整条
-   命令必须在 proot 内**；`auto` 会保证这一点，`fast` 不会。
-6. 构建链一律走 `android-build/scripts/build.sh`，它内部用 `$PREFIX` 的 JDK/
-   Gradle/aapt2，并自动 re-exec 到 proot。
-7. 不要在脚本里写死 `com.a2heng.adia` 或 `com.termux` 的**应用**路径；用
-   `$HOME`、`$PREFIX`、`$TMPDIR`。
+3. 脚本 shebang 可以写 `#!/data/data/com.termux/files/usr/bin/bash`；整条命令
+   已经在 proot 内。
+4. 构建链一律走 `android-build/scripts/build.sh`，它内部解析 JDK/SDK/Gradle。
+5. 不要在脚本里写死 `com.a2heng.adia` 或 `com.termux` 的**应用**路径；用
+   `$HOME`、`$PREFIX`、`$TMPDIR`、`$PWD`。
+6. 只有调试引擎（`fast`，仅 debug）才需要知道“原生 vs proot”；正式运行不需要。
 
 ---
 
@@ -340,13 +340,13 @@ termux-sensor-list
 
 | 报错 | 真实原因 | 解决 |
 |---|---|---|
-| `library "libreadline.so.8" not found` | 前缀缺 `readline`，或 ELF 在 proot 外跑 | `oc-repair`；`oc-engine auto`；用 `oc-proot` |
+| `library "libreadline.so.8" not found` | 前缀缺 `readline`，或有人绕过 `auto` 直接 exec | `oc-repair`；确认不是 debug `fast` |
 | `CANNOT LINK EXECUTABLE ... library "lib*.so" not found` | 同上，任意 Termux 库 | 同上 |
-| `Permission denied` / `inaccessible or not found` | Android 拒绝 exec 应用私有文件 | 不要直接执行；`auto` 或 `oc-proot` |
+| `Permission denied` / `inaccessible or not found` | Android 拒绝 exec 应用私有文件 | 正常 `auto` 不会发生；不要绕过 `oc-shell` |
 | `exec format error` | 用错 ABI / 直接 exec 脚本 | 用 proot；检查 aarch64 |
 | `pkg: command not found` | `termux-tools` 缺失 | `oc-repair` |
 | `proot: la caja de herramientas aun se esta instalando` | 首次安装未完成 | 等通知；看日志 |
-| `engine=fast` | 旧测速模式 | `oc-engine auto` |
+| `engine=fast` | 旧测速模式（release 应已忽略） | `oc-engine auto`；release 下 fast 不可写 |
 | `doctor-http-failed` | 服务器未启动 / token 缺失 | 从 App 终端运行；重启服务 |
 | `library "libandroid-support.so" not found` | bash 依赖缺失 | `oc-repair`（会补 `libandroid-support`） |
 
@@ -356,13 +356,14 @@ termux-sensor-list
 
 改命令/路径相关代码时，逐条打勾：
 
-- [ ] 新增前缀命令没有进 `SAFE_NATIVE`，除非确认它不 spawn。
+- [ ] `auto` 仍然无条件把整条命令交给 `oc-proot`，没有重新引入 token 白名单。
+- [ ] release 构建仍然忽略 `fast`。
 - [ ] 新增“启动必需”文件同时加入 `LocalToolbox.ESSENTIALS`、
       `ESSENTIAL_ROOTS`、`docs/paths.md`。
 - [ ] `bootstrap.txt` 仍包含 `bash` 和 `readline`。
-- [ ] `oc-*` 命令在 `PROOT_NAMES` 或显式分支里，且文档有全名。
+- [ ] `oc-*` 命令文档有全名，没有模糊缩写。
 - [ ] `nativeLibraryDir` 路径仍是运行时生成，没有写死。
-- [ ] `oc-proot` 仍然幂等。
+- [ ] `oc-proot` 仍然幂等，并且用 `$PWD` 做 `-w`。
 - [ ] 跑过 `python3 scripts/verify-toolbox.py`。
 - [ ] 跑过 `./gradlew :app:compileDebugJavaWithJavac`。
 - [ ] 真机跑过 `oc-doctor`，`missing` 为空。

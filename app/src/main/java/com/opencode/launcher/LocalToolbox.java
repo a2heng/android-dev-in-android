@@ -855,9 +855,9 @@ public final class LocalToolbox {
         // Se envuelven para limpiar el entorno; no se pisan los que ya
         // existen en el prefijo (settings, pm, getprop, ...).
         String[] sysCmds = {
-                "appops", "content", "dumpsys", "input", "monkey", "screencap",
-                "svc", "uiautomator", "wm", "ip", "ss", "ifconfig", "netstat",
-                "mount"
+                "am", "appops", "content", "dumpsys", "input", "monkey",
+                "screencap", "svc", "uiautomator", "wm", "ip", "ss",
+                "ifconfig", "netstat", "mount"
         };
         for (String c : sysCmds) {
             File f = new File(bin, c);

@@ -48,10 +48,10 @@ Never hard-code Chinese/English in layouts.
 ## Locale testing
 
 ```sh
-oc-proot 'adb shell am start -a android.settings.LOCALE_SETTINGS'
+adb shell am start -a android.settings.LOCALE_SETTINGS
 ```
 
-adb lives in app-private storage; wrap the whole command in `oc-proot`.
+`auto` runs adb inside proot; no wrapper is needed.
 
 Or use per-app languages on Android 13+ (Settings → Apps → My App → Language).
 After changing the locale, relaunch the app and take a screenshot.

@@ -8,41 +8,40 @@ description: Install, launch, uninstall or grant permissions to an Android app o
 ## Install with adb
 
 ```sh
-oc-proot 'adb install -r -t /path/to/app-debug.apk'
+adb install -r -t /path/to/app-debug.apk
 ```
 
 Both adb binaries (Termux `$PREFIX/bin/adb` and
-`$HOME/toolchain/platform-tools/adb`) are in app-private storage. They must run
-inside proot; a variable such as `ADB=$(...)` hides the path from the shell
-wrapper and Android returns `Permission denied`.
+`$HOME/toolchain/platform-tools/adb`) work normally: `auto` runs the whole
+command inside proot. No `oc-proot` wrapper is needed.
 
 `-r` replaces an existing install; `-t` allows test-only APKs. For a signature
 mismatch: uninstall first, then install:
 
 ```sh
-oc-proot 'adb uninstall com.example.app'
-oc-proot 'adb install /path/to/app.apk'
+adb uninstall com.example.app
+adb install /path/to/app.apk
 ```
 
 ## Launch
 
 ```sh
-oc-proot 'adb shell monkey -p com.example.app -c android.intent.category.LAUNCHER 1'
+adb shell monkey -p com.example.app -c android.intent.category.LAUNCHER 1
 # or, if the activity is known:
-oc-proot 'adb shell am start -n com.example.app/.MainActivity'
+adb shell am start -n com.example.app/.MainActivity
 ```
 
 Get the launchable activity:
 
 ```sh
-oc-proot 'adb shell cmd package resolve-activity --brief com.example.app | tail -n 1'
+adb shell cmd package resolve-activity --brief com.example.app | tail -n 1
 ```
 
 ## Permissions
 
 ```sh
-oc-proot 'adb shell pm grant com.example.app android.permission.POST_NOTIFICATIONS'
-oc-proot 'adb shell appops set com.example.app MANAGE_EXTERNAL_STORAGE allow'
+adb shell pm grant com.example.app android.permission.POST_NOTIFICATIONS
+adb shell appops set com.example.app MANAGE_EXTERNAL_STORAGE allow
 ```
 
 On some OEM ROMs (OPPO/ColorOS, Xiaomi/HyperOS) `pm grant`/`appops` from the
@@ -58,8 +57,8 @@ tap Install.
 ## Verify
 
 ```sh
-oc-proot 'adb shell dumpsys package com.example.app | grep -E "versionName|versionCode|firstInstallTime"'
-oc-proot 'adb shell pidof com.example.app'
+adb shell dumpsys package com.example.app | grep -E "versionName|versionCode|firstInstallTime"
+adb shell pidof com.example.app
 ```
 
 ## Notes

@@ -34,6 +34,12 @@ import java.util.regex.Pattern;
  */
 public final class CommandResolver {
     private static final String TAG = "OpenCodeLocal";
+    /**
+     * fast/native ejecuta binarios del prefijo fuera del sandbox. Solo se
+     * permite en builds debug para medir; en release el motor siempre es
+     * auto/proot, aunque quede un engine-mode=fast de una instalacion vieja.
+     */
+    private static final boolean ALLOW_FAST = BuildConfig.DEBUG;
 
     public static final String SHELL_NAME = "oc-shell";
     public static final String PROOT_NAME = "oc-proot";
@@ -46,53 +52,14 @@ public final class CommandResolver {
     public static final String REPAIR_NAME = "oc-repair";
 
     private static final String LINKER = "/system/bin/linker64";
-    private static final String[] SYSTEM_DIRS = {
-            "/system/bin", "/system/xbin", "/vendor/bin"
-    };
 
-    /** Comandos que necesitan el prefijo completo de Termux (proot). */
-    private static final String[] PROOT_COMMANDS = {
-            "pkg", "apt", "apt-get", "apt-cache", "apt-key", "dpkg", "dpkg-deb",
-            "dpkg-query", "dpkg-trigger", "termux-change-repo", "termux-setup-storage",
-            "termux-reload-settings", "termux-services", "proot", "proot-distro",
-            "sshd", "service",
-            // Lanza a otros comandos: en nativo el hijo seria el toybox del
-            // sistema (o fallaria con EACCES), en proot es el del prefijo.
-            "xargs"
-    };
-
-    /**
-     * Binarios del prefijo que deben ganar a la version de /system/bin.
-     *
-     * Regla: solo herramientas "hoja" (no lanzan otros binarios del prefijo).
-     * Asi el agente ve las mismas GNU que dentro de proot sin pagar ptrace.
-     * Lo que si lanza ayudantes del prefijo (git, ssh, los scripts de build)
-     * sigue yendo a proot por las otras reglas.
-     *
-     * Medido: GNU find tarda 94 ms en 10.059 entradas frente a 158 ms del
-     * toybox del sistema; GNU grep ademas soporta mas expresiones.
+    /*
+     * No hay listas de "comandos que van a proot" ni de "comandos seguros":
+     * en auto TODO el comando entra en proot. La lista de herramientas hoja
+     * queda solo como documentacion/medicion en docs/commands.md y en el
+     * modo fast de debug. Asi el agente no necesita conocer la clasificacion:
+     * escribe el comando y el motor decide por el.
      */
-    /**
-     * Herramientas hoja que si pueden correr nativas sin riesgo: no lanzan
-     * otros binarios del prefijo y se ejecutan con linker64 + LD_LIBRARY_PATH
-     * (ver oc-native-env.sh). Todo lo demas del prefijo va a proot.
-     *
-     * <p>Esta lista es la unica excepcion a la regla "nunca ejecutes un ELF de
-     * Termux fuera de proot"; por eso solo contiene programas que no hacen
-     * exec de nada mas. Si una herramienta nueva puede lanzar hijos, NO se
-     * anade aqui.</p>
-     */
-    private static final Set<String> SAFE_NATIVE = new HashSet<>(Arrays.asList(
-            // Busqueda y texto (las que mas usa el agente).
-            "find", "grep", "sed", "awk", "diff", "less", "cmp",
-            // Compresion suelta (son el programa, no lanzan a nadie).
-            "gzip", "bzip2", "xz", "zstd",
-            // Coreutils: mismas opciones que en proot. Los nombres son
-            // symlinks a coreutils; la funcion pasa el symlink (no el destino)
-            // para que argv[0] siga siendo el applet correcto.
-            "sort", "uniq", "cut", "tr", "head", "tail", "wc", "stat", "du",
-            "md5sum", "sha1sum", "sha256sum", "base64"
-    ));
 
     /** Nombres que no se pueden definir como funcion (builtins o palabras raras). */
     private static final Set<String> SHELL_BUILTINS = new HashSet<>(Arrays.asList(
@@ -114,23 +81,6 @@ public final class CommandResolver {
     private CommandResolver() {
     }
 
-    /** true si el comando debe correr dentro de proot. */
-    public static boolean needsProot(String commandLine) {
-        if (commandLine == null || commandLine.isEmpty()) return false;
-        String normalized = commandLine.replace('\n', ' ')
-                .replace(';', ' ').replace('|', ' ').replace('&', ' ');
-        for (String raw : normalized.split("\\s+")) {
-            String word = raw.replace("\"", "").replace("'", "");
-            if (word.isEmpty()) continue;
-            String base = word.substring(word.lastIndexOf('/') + 1);
-            for (String cmd : PROOT_COMMANDS) {
-                if (base.equals(cmd)) return true;
-            }
-            if (word.contains(TERMUX_PREFIX)) return true;
-        }
-        return false;
-    }
-
     /**
      * Escribe los envoltorios y devuelve la ruta de oc-shell.
      */
@@ -147,7 +97,7 @@ public final class CommandResolver {
         libs.add(new File(home, "lib").getAbsolutePath());
         libs.add(nd.getAbsolutePath());
         String libPath = String.join(":", libs);
-        Scan scan = scan(binDir, libPath);
+        Scan scan = scan(binDir);
         write(new File(binDir, NATIVE_ENV_NAME), nativeEnv(scan.functions, libPath));
         File proot = new File(binDir, PROOT_NAME);
         write(proot, prootScript(home, nd, tmp, etc));
@@ -157,24 +107,23 @@ public final class CommandResolver {
         if (Mode.NATIVE.equals(readModeRaw(home))) writeMode(home, Mode.AUTO);
         write(new File(binDir, ENGINE_NAME), engineScript(modeFile));
         File shell = new File(binDir, SHELL_NAME);
-        write(shell, shellScript(scan.routeNames, modeFile));
+        write(shell, shellScript(modeFile));
         write(new File(binDir, DOCTOR_NAME), doctorScript(home));
         write(new File(binDir, REPAIR_NAME), repairScript(home));
-        Log.i(TAG, "resolvedor listo: " + scan.functions.size() + " nativos, "
-                + scan.routeNames.size() + " a proot; " + shell);
+        Log.i(TAG, "resolvedor listo: " + scan.functions.size()
+                + " funciones fast; auto/proot = todo al sandbox; " + shell);
         return shell;
     }
 
     /**
      * Motores soportados:
      * <ul>
-     *   <li>{@code auto}: seguro por defecto. Todo lo que vive en el prefijo
-     *       Termux va a proot; solo las herramientas hoja (grep/sed/...) y los
-     *       binarios Android corren nativos.</li>
-     *   <li>{@code proot}: todo el comando dentro del sandbox.</li>
-     *   <li>{@code fast}: reparto antiguo, solo para medir rendimiento. Puede
-     *       dejar un binario del prefijo fuera de proot y reproducir el error
-     *       de libreadline.</li>
+     *   <li>{@code auto}: transparente. TODO el comando se ejecuta dentro del
+     *       sandbox proot; el agente no clasifica nada ni necesita saber que
+     *       hay detras. Es el valor por defecto.</li>
+     *   <li>{@code proot}: igual que auto, explicito.</li>
+     *   <li>{@code fast}: solo debug, para medir; ejecuta nativo y puede
+     *       reproducir el error de libreadline. Release lo ignora.</li>
      *   <li>{@code native}: alias historico de {@code fast}; se migra solo.</li>
      * </ul>
      */
@@ -259,19 +208,14 @@ public final class CommandResolver {
      */
     private static final class Scan {
         final List<String> functions = new ArrayList<>();
-        /** Comandos que oc-shell debe enviar siempre a proot en modo auto. */
-        final Set<String> routeNames = new LinkedHashSet<>();
     }
 
-    private static Scan scan(File binDir, String libPath) {
+    /**
+     * Solo para el modo fast de debug: genera funciones que lanzan los ELF
+     * con linker64. El modo auto no usa esto; todo va a proot.
+     */
+    private static Scan scan(File binDir) {
         Scan scan = new Scan();
-        Set<String> route = new LinkedHashSet<>(Arrays.asList(PROOT_COMMANDS));
-        // Los scripts propios tambien se ejecutan dentro del sandbox: Android
-        // bloquea execve en el directorio de datos y, dentro, sus rutas y
-        // enlaces son los de Termux.
-        route.add(DOCTOR_NAME);
-        route.add(REPAIR_NAME);
-        route.add(ENGINE_NAME);
         boolean linker = new File(LINKER).isFile();
         File[] files = binDir.listFiles();
         if (files != null) {
@@ -284,15 +228,6 @@ public final class CommandResolver {
                 }
                 if (!SAFE_COMMAND.matcher(name).matches()) continue;
                 if (!file.isFile() || !file.canExecute()) continue;
-                boolean safe = SAFE_NATIVE.contains(name);
-                if (!safe && !SHELL_BUILTINS.contains(name) && !systemHas(name)) {
-                    // Todo lo que solo existe en el prefijo (bash, git, python,
-                    // node, npm, clang, adb, scripts de pkg...) va a proot en
-                    // modo auto. Es la regla que evita libreadline.so.8.
-                    route.add(name);
-                }
-                // En modo fast todavia se genera la funcion nativa para poder
-                // medir; en auto nunca se ejecutara para estos nombres.
                 if (!isElf(file)) continue;
                 if (SHELL_BUILTINS.contains(name)) continue;
                 if (!VALID_NAME.matcher(name).matches()) continue;
@@ -313,15 +248,7 @@ public final class CommandResolver {
                         + LINKER + " " + q(file.getAbsolutePath()) + " \"$@\"; }");
             }
         }
-        scan.routeNames.addAll(route);
         return scan;
-    }
-
-    private static boolean systemHas(String name) {
-        for (String dir : SYSTEM_DIRS) {
-            if (new File(dir, name).isFile()) return true;
-        }
-        return false;
     }
 
     private static boolean isElf(File file) {
@@ -355,30 +282,25 @@ public final class CommandResolver {
         return out.toString();
     }
 
-    private static String shellScript(Set<String> prootNames, File modeFile) {
+    private static String shellScript(File modeFile) {
         String modePath = q(modeFile.getAbsolutePath());
-        StringBuilder cases = new StringBuilder();
-        for (String cmd : prootNames) {
-            if (cases.length() > 0) cases.append('|');
-            cases.append(cmd);
-        }
-        // El envoltorio se ejecuta con /system/bin/sh. No usa utilidades del
-        // prefijo (dirname, printf, tr...) porque Android no las deja
-        // ejecutar: solo builtins y ordenes del sistema.
-        //
-        // Modo auto = denegar por defecto. Se revisan todas las palabras, no
-        // solo la primera: asi "id; git status" tambien detecta git. Un falso
-        // positivo (p. ej. "echo git") solo cuesta arrancar proot; un falso
-        // negativo reproduce el fallo de libreadline.
-        String proot = "      exec /system/bin/sh \"$OWN/" + PROOT_NAME + "\" \"$CMD\" ;;";
+        // fast/native solo se permite en debug; en release se ignora.
+        String fastBlock = ALLOW_FAST
+                ? "if [ \"$OC_MODE\" = \"fast\" ] || [ \"$OC_MODE\" = \"native\" ]; then\n"
+                + "  if [ -f \"$OWN/" + NATIVE_ENV_NAME + "\" ]; then . \"$OWN/" + NATIVE_ENV_NAME + "\"; fi\n"
+                + "  OC_ENGINE=native; export OC_ENGINE\n"
+                + "  eval \"$CMD\"; exit $?\n"
+                + "fi\n"
+                : "if [ \"$OC_MODE\" = \"fast\" ] || [ \"$OC_MODE\" = \"native\" ]; then\n"
+                + "  OC_MODE=auto\n"
+                + "fi\n";
         return "#!/system/bin/sh\n"
                 + "# Generado por CommandResolver. No editar a mano.\n"
                 + "# Ver docs/commands.md y docs/paths.md en el repositorio.\n"
                 + "#\n"
-                + "# auto: todo binario Termux va a proot; solo las herramientas\n"
-                + "# hoja de SAFE_NATIVE y los binarios Android corren nativos.\n"
-                + "# fast: reparto antiguo, solo para medir rendimiento.\n"
-                + "# proot: todo dentro del sandbox.\n"
+                + "# auto/proot: TODO el comando entra en proot. No hay heuristicas\n"
+                + "# ni listas que el agente deba conocer; el motor decide por el.\n"
+                + "# fast: solo debug, nativo, para medir.\n"
                 + "unset LD_LIBRARY_PATH LD_PRELOAD\n"
                 + "CMD=\"\"\n"
                 + "while [ $# -gt 0 ]; do\n"
@@ -390,55 +312,12 @@ public final class CommandResolver {
                 + "done\n"
                 + "if [ -z \"$CMD\" ]; then exec /system/bin/sh; fi\n"
                 + "case \"$0\" in */*) OWN=${0%/*} ;; *) OWN=. ;; esac\n"
-                + "APP_FILES=${OWN%/usr/bin}\n"
                 + "OC_MODE=auto\n"
                 + "if [ -r " + modePath + " ]; then read OC_MODE < " + modePath + "; fi\n"
-                + "case \"$OC_MODE\" in\n"
-                + "  proot)\n"
-                + "    exec /system/bin/sh \"$OWN/" + PROOT_NAME + "\" \"$CMD\" ;;\n"
-                + "  fast|native)\n"
-                + "    if [ -f \"$OWN/" + NATIVE_ENV_NAME + "\" ]; then . \"$OWN/" + NATIVE_ENV_NAME + "\"; fi\n"
-                + "    OC_ENGINE=native; export OC_ENGINE\n"
-                + "    eval \"$CMD\"; exit $? ;;\n"
-                + "esac\n"
-                + "# --- auto (seguro) ---\n"
-                + "for RAW in $CMD; do\n"
-                + "  W=${RAW#\\\"}; W=${W%\\\"}; W=${W#\\'}; W=${W%\\'}\n"
-                + "  W=${W#\\(}; W=${W%\\)}; W=${W%;}; W=${W%|}; W=${W%&}\n"
-                + "  case \"$W\" in\n"
-                + "    " + cases + ")\n"
-                + proot + "\n"
-                + "    " + TERMUX_PREFIX + "/*|*" + TERMUX_PREFIX + "/*|*\"$APP_FILES\"*|*\"$HOME\"*)\n"
-                + proot + "\n"
-                + "    *'$'*|*'`'*)\n"
-                + "      # Una variable puede esconder la ruta del binario. Dentro de\n"
-                + "      # proot se expande con el prefijo correcto.\n"
-                + proot + "\n"
-                + "    ./*|../*|*.sh|*.bash|*.py|*.js|*.mjs|*.cjs|*.ts)\n"
-                + "      # Script o binario del proyecto: puede lanzar herramientas\n"
-                + "      # del prefijo, asi que se ejecuta con el prefijo montado.\n"
-                + proot + "\n"
-                + "  esac\n"
-                + "done\n"
-                + "if [ -f \"$OWN/" + NATIVE_ENV_NAME + "\" ]; then\n"
-                + "  . \"$OWN/" + NATIVE_ENV_NAME + "\"\n"
-                + "fi\n"
-                + "OC_ENGINE=native\n"
-                + "export OC_ENGINE\n"
-                + "eval \"$CMD\"\n"
-                + "RC=$?\n"
-                // 127: no encontrado; 126: no ejecutable (execve de app data
-                // rechazado por Android). Los dos casos se reintentan en proot.
-                + "if [ $RC -eq 127 ] || [ $RC -eq 126 ]; then\n"
-                + "  exec /system/bin/sh \"$OWN/" + PROOT_NAME + "\" \"$CMD\"\n"
-                + "fi\n"
-                + "exit $RC\n";
+                + fastBlock
+                + "exec /system/bin/sh \"$OWN/" + PROOT_NAME + "\" \"$CMD\"\n";
     }
 
-    /**
-     * oc-engine: consulta o cambia el motor desde el propio agente.
-     * El cambio aplica al siguiente comando, sin reiniciar el servidor.
-     */
     private static String engineScript(File modeFile) {
         String path = q(modeFile.getAbsolutePath());
         return "#!/system/bin/sh\n"
@@ -449,9 +328,9 @@ public final class CommandResolver {
                 + "#          solo grep/sed/find... y los binarios Android corren nativos.\n"
                 + "#   proot  todo el comando dentro del sandbox (mas lento, maximo\n"
                 + "#          aislamiento y compatibilidad).\n"
-                + "#   fast   reparto antiguo solo para medir. PUEDE reproducir el\n"
-                + "#          error 'library libreadline.so.8 not found'; no usar\n"
-                + "#          para trabajo real.\n"
+                + "#   fast   solo en builds debug, para medir. PUEDE reproducir el\n"
+                + "#          error 'library libreadline.so.8 not found'; en release\n"
+                + "#          se ignora y se sigue con auto.\n"
                 + "#   status imprime el modo actual (una palabra).\n"
                 + "#   help   imprime esta ayuda.\n"
                 + "CURRENT=auto\n"
@@ -465,14 +344,19 @@ public final class CommandResolver {
                 + "    echo proot > " + path + " || exit 1\n"
                 + "    echo \"engine=proot (todo el comando dentro del sandbox)\" ;;\n"
                 + "  fast|native)\n"
-                + "    echo fast > " + path + " || exit 1\n"
-                + "    echo \"engine=fast (solo medicion; puede fallar libreadline)\" >&2 ;;\n"
+                + (ALLOW_FAST
+                    ? "    echo fast > " + path + " || exit 1\n"
+                    + "    echo \"engine=fast (solo debug; puede fallar libreadline)\" >&2 ;;\n"
+                    : "    echo \"oc-engine: fast solo existe en builds debug; el motor sigue en auto\" >&2\n"
+                    + "    exit 2 ;;\n")
                 + "  help|-h|--help)\n"
                 + "    echo \"oc-engine: motor de ejecucion de comandos de Adia\"\n"
                 + "    echo \"  oc-engine status  -> auto|proot|fast\"\n"
                 + "    echo \"  oc-engine auto    -> seguro (recomendado)\"\n"
                 + "    echo \"  oc-engine proot   -> todo en el sandbox Termux\"\n"
-                + "    echo \"  oc-engine fast    -> reparto antiguo, solo medicion\"\n"
+                + (ALLOW_FAST
+                    ? "    echo \"  oc-engine fast    -> reparto antiguo, solo debug/medicion\"\n"
+                    : "    echo \"  oc-engine fast    -> deshabilitado en release\"\n")
                 + "    echo \"  oc-engine help    -> esta ayuda\"\n"
                 + "    echo \"Documentacion: docs/commands.md y docs/paths.md\" ;;\n"
                 + "  *)\n"
@@ -511,7 +395,7 @@ public final class CommandResolver {
                 + "check() { if [ -e \"${PREFIX:-/nonexistent}/$1\" ]; then echo \"OK      $1\"; else echo \"MISSING $1\"; fi; }\n"
                 + files
                 + "echo \"-- comprobacion en proot --\"\n"
-                + "/system/bin/sh \"$OWN/oc-proot\" 'echo proot-ok; echo PREFIX=$PREFIX; bash -c \"echo bash-ok\"; git --version | head -1' 2>&1\n"
+                + "/system/bin/sh \"$OWN/oc-proot\" 'echo proot-ok; echo PWD=$PWD; echo PREFIX=$PREFIX; bash -c \"echo bash-ok\"; git --version | head -1' 2>&1\n"
                 + "post() {\n"
                 + "  if [ -x \"${PREFIX:-/nonexistent}/bin/curl\" ]; then\n"
                 + "    \"${PREFIX}/bin/curl\" -s -X POST --data \"token=$TOK\" \"$1\"\n"
