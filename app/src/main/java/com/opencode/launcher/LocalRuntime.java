@@ -599,6 +599,9 @@ public final class LocalRuntime {
         File proot = new File(nd, "libproot.so");
         File loader = new File(nd, "libproot_loader.so");
         Map<String, String> env = buildEnv(app, home, tmp, etc, lib, nd, loader, prootTmp);
+        // En el terminal interactivo el shell por defecto es el bash del prefijo.
+        env.put("SHELL", LocalToolbox.SANDBOX_PREFIX + "/bin/bash");
+        env.put("COLORTERM", "truecolor");
         List<String> base = prootCmd(app, home, tmp, etc, musl, proot, env,
                 home.getAbsolutePath());
         boolean hasScript = LocalToolbox.ensureTerminalTools(app);
