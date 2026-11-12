@@ -25,6 +25,14 @@ DEFAULT_SET = [
     # these cover AIDL projects and on-device adb without a 4 KB binary.
     "aidl", "android-tools",
 ]
+# These are not "apt/dpkg dependencies", but bash cannot start without them.
+# They are extracted in Java during phase 1, before dpkg runs, so a partial
+# dpkg install can never leave a shell that says
+# `library "libreadline.so.8" not found`.
+ESSENTIAL_ROOTS = [
+    "bash", "readline", "ncurses", "libiconv", "libandroid-support",
+    "termux-tools", "util-linux",
+]
 
 
 def fetch(url):
@@ -118,7 +126,10 @@ def main():
         raise SystemExit(f"could not load any mirror: {last}")
 
     all_pkgs = resolve(pkgs, roots)
-    boot_pkgs = resolve(pkgs, ["apt", "dpkg"])
+    # bootstrap.txt is extracted first in Java. It must include the shell and
+    # its libraries, not only apt/dpkg, or a failed dpkg phase leaves a broken
+    # prefix. dedupe while preserving order.
+    boot_pkgs = list(dict.fromkeys(resolve(pkgs, ["apt", "dpkg"] + ESSENTIAL_ROOTS)))
     # bootstrap.txt is consumed first; its .deb files must be present in the
     # APK too (apt/dpkg and their dependencies).
     download_pkgs = list(dict.fromkeys(boot_pkgs + all_pkgs))

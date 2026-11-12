@@ -20,37 +20,44 @@ There are two kinds of binaries on the phone:
    `$HOME/toolchain`. They live in app-private storage; Android returns
    `Permission denied` (EACCES) if a native process tries to `execve` them.
 
-The opencode server may run natively (`oc-engine status` = `auto` or `native`).
-The shell wrapper only routes a command to proot when it can see a Termux path
-or a known proot command **in the command line**. Variable expansion hides that
-path, so this **fails**:
+The opencode server may run natively (`oc-engine status` = `auto`, `proot` or
+`fast`). The shell wrapper is **deny-by-default** in `auto`: any command that
+lives in the Termux prefix (except the leaf tools `grep/sed/find/...`) is sent
+to proot as a whole, and any command containing `$`, a prefix path, `./`,
+`../` or a script extension is also sent to proot.
+
+That means these work without extra wrapping:
 
 ```sh
-ADB="$HOME/toolchain/platform-tools/adb"; "$ADB" devices
-ADB="$PREFIX/bin/adb"; "$ADB" devices
-# Permission denied / inaccessible or not found
+git status
+python3 app.py
+bash scripts/build.sh
+adb devices
+pkg install -y jq
 ```
 
-Put the **whole command inside `oc-proot`**, so the variable expands inside the
-sandbox:
+Variables are also handled now, but the explicit form is still the clearest
+and is the one to use inside longer recipes:
 
 ```sh
-oc-proot 'adb devices'
-oc-proot 'ADB="$HOME/toolchain/platform-tools/adb"; "$ADB" version'
-oc-proot 'bash "$HOME/project/scripts/build.sh" debug'
+oc-proot 'ADB="$HOME/toolchain/platform-tools/adb"; "$ADB" devices'
+oc-proot 'cd "$HOME/workspace/App" && ./gradlew assembleDebug'
 ```
 
 Rules:
 
 - Check `oc-engine status`:
-  - `auto`: wrap commands that need Termux/toolchain binaries in
-    `oc-proot '<command>'`.
+  - `auto`: safe default; prefix binaries are routed to proot automatically.
+    Use `oc-proot '<command>'` when you want the whole recipe in the sandbox
+    explicitly (variables, `cd`, many commands).
   - `proot`: every command already runs inside the sandbox; run it normally and
     do **not** nest another `oc-proot`.
-  - `native`: measurement-only mode; it skips the proot routing. Run
-    `oc-engine auto` first if you need prefix/toolchain binaries.
-- `oc-proot '<command>'` — run one command in the sandbox. This is the safe
-  default for Termux/toolchain binaries and for scripts that call them.
+  - `fast`: measurement-only mode. It may execute a prefix binary outside proot
+    and reproduce `library "libreadline.so.8" not found`. Run `oc-engine auto`
+    before doing real work.
+- `oc-proot '<command>'` — run one entire command in the sandbox. One argument,
+  quoted. This is the safe explicit form for Termux/toolchain binaries and for
+  scripts that call them.
 - A literal prefix path also works (the wrapper sees it):
   `/data/data/com.termux/files/usr/bin/adb devices`.
 - `oc-engine proot` switches the whole session to proot (slower; use when many
@@ -59,6 +66,8 @@ Rules:
   `$HOME/toolchain/platform-tools/adb`; both must run inside proot.
 - Never `chmod +x` and exec an app-private binary from Java/`ProcessBuilder`;
   Android denies it. Use the shell wrapper or proot.
+- If a path/library error still appears, run `oc-doctor` first and then
+  `oc-repair`; both are documented in `docs/commands.md` and `docs/paths.md`.
 
 Do not mix their libraries: an Android binary must not inherit Termux
 `LD_LIBRARY_PATH`, and a Termux binary must not be launched with the Android
@@ -192,8 +201,11 @@ termux-am start ...
 ## Pitfalls
 
 - **`CANNOT LINK EXECUTABLE … library "libX.so" not found`** — the Termux
-  binary was launched without its prefix libraries. Run it inside proot:
-  `oc-proot '<command>'` (or `oc-engine proot` for a batch).
+  binary was launched outside proot, or the prefix is missing a library
+  (classically `libreadline.so.8`). Run `oc-engine status` (must be `auto` or
+  `proot`), then `oc-doctor` and `oc-repair`. For an explicit command use
+  `oc-proot '<command>'`. `auto` already routes prefix binaries; `fast` does
+  not, so never use `fast` for real work.
 - **`Permission denied` / `inaccessible or not found` / `exec format error`** —
   a Termux/toolchain ELF or script was executed directly from the app data
   directory by an Android process (often through a shell variable such as

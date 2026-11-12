@@ -38,8 +38,12 @@ public final class CommandResolver {
     public static final String SHELL_NAME = "oc-shell";
     public static final String PROOT_NAME = "oc-proot";
     public static final String NATIVE_ENV_NAME = "oc-native-env.sh";
-    /** Comando que lee/cambia el motor: oc-engine [auto|proot|native|status]. */
+    /** Comando que lee/cambia el motor: oc-engine [auto|proot|fast|status]. */
     public static final String ENGINE_NAME = "oc-engine";
+    /** Diagnostico de rutas y motor: oc-doctor. */
+    public static final String DOCTOR_NAME = "oc-doctor";
+    /** Reparacion offline del prefijo: oc-repair. */
+    public static final String REPAIR_NAME = "oc-repair";
 
     private static final String LINKER = "/system/bin/linker64";
     private static final String[] SYSTEM_DIRS = {
@@ -68,7 +72,17 @@ public final class CommandResolver {
      * Medido: GNU find tarda 94 ms en 10.059 entradas frente a 158 ms del
      * toybox del sistema; GNU grep ademas soporta mas expresiones.
      */
-    private static final Set<String> PREFER_PREFIX = new HashSet<>(Arrays.asList(
+    /**
+     * Herramientas hoja que si pueden correr nativas sin riesgo: no lanzan
+     * otros binarios del prefijo y se ejecutan con linker64 + LD_LIBRARY_PATH
+     * (ver oc-native-env.sh). Todo lo demas del prefijo va a proot.
+     *
+     * <p>Esta lista es la unica excepcion a la regla "nunca ejecutes un ELF de
+     * Termux fuera de proot"; por eso solo contiene programas que no hacen
+     * exec de nada mas. Si una herramienta nueva puede lanzar hijos, NO se
+     * anade aqui.</p>
+     */
+    private static final Set<String> SAFE_NATIVE = new HashSet<>(Arrays.asList(
             // Busqueda y texto (las que mas usa el agente).
             "find", "grep", "sed", "awk", "diff", "less", "cmp",
             // Compresion suelta (son el programa, no lanzan a nadie).
@@ -137,35 +151,72 @@ public final class CommandResolver {
         write(new File(binDir, NATIVE_ENV_NAME), nativeEnv(scan.functions, libPath));
         File proot = new File(binDir, PROOT_NAME);
         write(proot, prootScript(home, nd, tmp, etc));
-        File modeFile = new File(new File(home, ".config/opencode-android"), "engine-mode");
+        File modeFile = modeFile(home);
+        // Las instalaciones que midieron con "native" vuelven a auto: native
+        // era justo el modo que dejaba binarios del prefijo sin sus librerias.
+        if (Mode.NATIVE.equals(readModeRaw(home))) writeMode(home, Mode.AUTO);
         write(new File(binDir, ENGINE_NAME), engineScript(modeFile));
         File shell = new File(binDir, SHELL_NAME);
-        write(shell, shellScript(scan.prootNames, modeFile));
+        write(shell, shellScript(scan.routeNames, modeFile));
+        write(new File(binDir, DOCTOR_NAME), doctorScript(home));
+        write(new File(binDir, REPAIR_NAME), repairScript(home));
         Log.i(TAG, "resolvedor listo: " + scan.functions.size() + " nativos, "
-                + scan.prootNames.size() + " a proot; " + shell);
+                + scan.routeNames.size() + " a proot; " + shell);
         return shell;
     }
 
-    /** Motores soportados. "auto" es el reparto por comando; "proot" manda todo al sandbox. */
+    /**
+     * Motores soportados:
+     * <ul>
+     *   <li>{@code auto}: seguro por defecto. Todo lo que vive en el prefijo
+     *       Termux va a proot; solo las herramientas hoja (grep/sed/...) y los
+     *       binarios Android corren nativos.</li>
+     *   <li>{@code proot}: todo el comando dentro del sandbox.</li>
+     *   <li>{@code fast}: reparto antiguo, solo para medir rendimiento. Puede
+     *       dejar un binario del prefijo fuera de proot y reproducir el error
+     *       de libreadline.</li>
+     *   <li>{@code native}: alias historico de {@code fast}; se migra solo.</li>
+     * </ul>
+     */
     public static final class Mode {
         public static final String AUTO = "auto";
         public static final String PROOT = "proot";
+        public static final String FAST = "fast";
         public static final String NATIVE = "native";
 
         private Mode() {
         }
 
         public static boolean valid(String mode) {
-            return AUTO.equals(mode) || PROOT.equals(mode) || NATIVE.equals(mode);
+            return AUTO.equals(mode) || PROOT.equals(mode)
+                    || FAST.equals(mode) || NATIVE.equals(mode);
+        }
+
+        /** "native" era el nombre viejo de fast; no debe quedar en disco. */
+        public static String migrate(String mode) {
+            return NATIVE.equals(mode) ? FAST : mode;
         }
     }
 
-    /** Fichero de una linea (auto|proot|native) que lee oc-shell en cada comando. */
+    /** Fichero de una linea (auto|proot|fast) que lee oc-shell en cada comando. */
     public static File modeFile(File home) {
         return new File(new File(home, ".config/opencode-android"), "engine-mode");
     }
 
     public static String readMode(File home) {
+        File file = modeFile(home);
+        if (!file.isFile()) return Mode.AUTO;
+        try {
+            String text = new String(java.nio.file.Files.readAllBytes(file.toPath()),
+                    java.nio.charset.StandardCharsets.UTF_8).trim();
+            return Mode.valid(text) ? Mode.migrate(text) : Mode.AUTO;
+        } catch (IOException e) {
+            return Mode.AUTO;
+        }
+    }
+
+    /** Texto tal cual del fichero, sin migrar; para detectar "native" viejo. */
+    static String readModeRaw(File home) {
         File file = modeFile(home);
         if (!file.isFile()) return Mode.AUTO;
         try {
@@ -208,12 +259,19 @@ public final class CommandResolver {
      */
     private static final class Scan {
         final List<String> functions = new ArrayList<>();
-        final Set<String> prootNames = new LinkedHashSet<>();
+        /** Comandos que oc-shell debe enviar siempre a proot en modo auto. */
+        final Set<String> routeNames = new LinkedHashSet<>();
     }
 
     private static Scan scan(File binDir, String libPath) {
         Scan scan = new Scan();
-        Set<String> proot = new LinkedHashSet<>(Arrays.asList(PROOT_COMMANDS));
+        Set<String> route = new LinkedHashSet<>(Arrays.asList(PROOT_COMMANDS));
+        // Los scripts propios tambien se ejecutan dentro del sandbox: Android
+        // bloquea execve en el directorio de datos y, dentro, sus rutas y
+        // enlaces son los de Termux.
+        route.add(DOCTOR_NAME);
+        route.add(REPAIR_NAME);
+        route.add(ENGINE_NAME);
         boolean linker = new File(LINKER).isFile();
         File[] files = binDir.listFiles();
         if (files != null) {
@@ -226,34 +284,26 @@ public final class CommandResolver {
                 }
                 if (!SAFE_COMMAND.matcher(name).matches()) continue;
                 if (!file.isFile() || !file.canExecute()) continue;
-                if (proot.contains(name)) continue;
-                if (systemHas(name) && !PREFER_PREFIX.contains(name)) continue;
-                if (!isElf(file)) {
-                    // Script de verdad (npm, pip, pkg, termux-*...): necesita su prefijo.
-                    proot.add(name);
-                    continue;
+                boolean safe = SAFE_NATIVE.contains(name);
+                if (!safe && !SHELL_BUILTINS.contains(name) && !systemHas(name)) {
+                    // Todo lo que solo existe en el prefijo (bash, git, python,
+                    // node, npm, clang, adb, scripts de pkg...) va a proot en
+                    // modo auto. Es la regla que evita libreadline.so.8.
+                    route.add(name);
                 }
+                // En modo fast todavia se genera la funcion nativa para poder
+                // medir; en auto nunca se ejecutara para estos nombres.
+                if (!isElf(file)) continue;
                 if (SHELL_BUILTINS.contains(name)) continue;
-                if (!VALID_NAME.matcher(name).matches()) {
-                    // Un ELF con guion no puede ser funcion POSIX: a proot.
-                    proot.add(name);
-                    continue;
-                }
-                if (!linker) {
-                    proot.add(name);
-                    continue;
-                }
+                if (!VALID_NAME.matcher(name).matches()) continue;
+                if (!linker) continue;
                 File target;
                 try {
                     target = file.getCanonicalFile();
                 } catch (IOException e) {
-                    proot.add(name);
                     continue;
                 }
-                if (!target.isFile() || !isElf(target)) {
-                    proot.add(name);
-                    continue;
-                }
+                if (!target.isFile() || !isElf(target)) continue;
                 if (!seen.add(name)) continue;
                 // Se lanza el SYMLINK, no el destino canonico: los coreutils
                 // de Termux son un solo binario que elige el applet por
@@ -263,7 +313,7 @@ public final class CommandResolver {
                         + LINKER + " " + q(file.getAbsolutePath()) + " \"$@\"; }");
             }
         }
-        scan.prootNames.addAll(proot);
+        scan.routeNames.addAll(route);
         return scan;
     }
 
@@ -316,16 +366,19 @@ public final class CommandResolver {
         // prefijo (dirname, printf, tr...) porque Android no las deja
         // ejecutar: solo builtins y ordenes del sistema.
         //
-        // Se revisan todas las palabras, no solo la primera: asi un
-        // "id; git status" tambien detecta git. Un falso positivo (p. ej.
-        // "echo git") solo cuesta arrancar proot; un falso negativo rompe el
-        // comando con Permission denied.
+        // Modo auto = denegar por defecto. Se revisan todas las palabras, no
+        // solo la primera: asi "id; git status" tambien detecta git. Un falso
+        // positivo (p. ej. "echo git") solo cuesta arrancar proot; un falso
+        // negativo reproduce el fallo de libreadline.
+        String proot = "      exec /system/bin/sh \"$OWN/" + PROOT_NAME + "\" \"$CMD\" ;;";
         return "#!/system/bin/sh\n"
                 + "# Generado por CommandResolver. No editar a mano.\n"
-                + "# El shell del agente no hereda las librerias de Termux: los\n"
-                + "# binarios del sistema (dumpsys, pm, am...) cargan las suyas.\n"
-                + "# Las funciones de oc-native-env.sh ponen LD_LIBRARY_PATH solo\n"
-                + "# cuando lanzan un ELF del prefijo con linker64.\n"
+                + "# Ver docs/commands.md y docs/paths.md en el repositorio.\n"
+                + "#\n"
+                + "# auto: todo binario Termux va a proot; solo las herramientas\n"
+                + "# hoja de SAFE_NATIVE y los binarios Android corren nativos.\n"
+                + "# fast: reparto antiguo, solo para medir rendimiento.\n"
+                + "# proot: todo dentro del sandbox.\n"
                 + "unset LD_LIBRARY_PATH LD_PRELOAD\n"
                 + "CMD=\"\"\n"
                 + "while [ $# -gt 0 ]; do\n"
@@ -338,48 +391,35 @@ public final class CommandResolver {
                 + "if [ -z \"$CMD\" ]; then exec /system/bin/sh; fi\n"
                 + "case \"$0\" in */*) OWN=${0%/*} ;; *) OWN=. ;; esac\n"
                 + "APP_FILES=${OWN%/usr/bin}\n"
-                // Motor elegido por el usuario: auto (reparto por comando),
-                // proot (todo al sandbox) o native (fuerza nativo, para medir).
                 + "OC_MODE=auto\n"
                 + "if [ -r " + modePath + " ]; then read OC_MODE < " + modePath + "; fi\n"
-                + "if [ \"$OC_MODE\" = \"proot\" ]; then\n"
-                + "  exec /system/bin/sh \"$OWN/" + PROOT_NAME + "\" \"$CMD\"\n"
-                + "fi\n"
-                + "if [ \"$OC_MODE\" = \"native\" ]; then\n"
-                + "  if [ -f \"$OWN/" + NATIVE_ENV_NAME + "\" ]; then . \"$OWN/" + NATIVE_ENV_NAME + "\"; fi\n"
-                + "  OC_ENGINE=native\n"
-                + "  export OC_ENGINE\n"
-                + "  eval \"$CMD\"\n"
-                + "  exit $?\n"
-                + "fi\n"
-                + "HAS_GIT=0\n"
-                + "GIT_HELPER=0\n"
+                + "case \"$OC_MODE\" in\n"
+                + "  proot)\n"
+                + "    exec /system/bin/sh \"$OWN/" + PROOT_NAME + "\" \"$CMD\" ;;\n"
+                + "  fast|native)\n"
+                + "    if [ -f \"$OWN/" + NATIVE_ENV_NAME + "\" ]; then . \"$OWN/" + NATIVE_ENV_NAME + "\"; fi\n"
+                + "    OC_ENGINE=native; export OC_ENGINE\n"
+                + "    eval \"$CMD\"; exit $? ;;\n"
+                + "esac\n"
+                + "# --- auto (seguro) ---\n"
                 + "for RAW in $CMD; do\n"
                 + "  W=${RAW#\\\"}; W=${W%\\\"}; W=${W#\\'}; W=${W%\\'}\n"
                 + "  W=${W#\\(}; W=${W%\\)}; W=${W%;}; W=${W%|}; W=${W%&}\n"
                 + "  case \"$W\" in\n"
                 + "    " + cases + ")\n"
-                + "      exec /system/bin/sh \"$OWN/" + PROOT_NAME + "\" \"$CMD\" ;;\n"
-                + "    " + TERMUX_PREFIX + "/*|*" + TERMUX_PREFIX + "/*|*\"$APP_FILES\"*)\n"
-                + "      exec /system/bin/sh \"$OWN/" + PROOT_NAME + "\" \"$CMD\" ;;\n"
-                + "    *android-build/scripts/*)\n"
-                + "      # La cadena de build (JDK, Gradle, aapt2) vive en el\n"
-                + "      # prefijo y necesita proot para ejecutar sus ELF.\n"
-                + "      exec /system/bin/sh \"$OWN/" + PROOT_NAME + "\" \"$CMD\" ;;\n"
-                + "  esac\n"
-                + "  case \"$W\" in git) HAS_GIT=1 ;; esac\n"
-                + "  case \"$W\" in\n"
-                + "    clone|fetch|pull|push|ls-remote|submodule|commit|merge|rebase)\n"
-                + "      GIT_HELPER=1 ;;\n"
-                + "    cherry-pick|revert|am|send-email|difftool|mergetool|credential)\n"
-                + "      GIT_HELPER=1 ;;\n"
-                + "    maintenance|gc|repack|prune)\n"
-                + "      GIT_HELPER=1 ;;\n"
+                + proot + "\n"
+                + "    " + TERMUX_PREFIX + "/*|*" + TERMUX_PREFIX + "/*|*\"$APP_FILES\"*|*\"$HOME\"*)\n"
+                + proot + "\n"
+                + "    *'$'*|*'`'*)\n"
+                + "      # Una variable puede esconder la ruta del binario. Dentro de\n"
+                + "      # proot se expande con el prefijo correcto.\n"
+                + proot + "\n"
+                + "    ./*|../*|*.sh|*.bash|*.py|*.js|*.mjs|*.cjs|*.ts)\n"
+                + "      # Script o binario del proyecto: puede lanzar herramientas\n"
+                + "      # del prefijo, asi que se ejecuta con el prefijo montado.\n"
+                + proot + "\n"
                 + "  esac\n"
                 + "done\n"
-                + "if [ $HAS_GIT -eq 1 ] && [ $GIT_HELPER -eq 1 ]; then\n"
-                + "  exec /system/bin/sh \"$OWN/" + PROOT_NAME + "\" \"$CMD\"\n"
-                + "fi\n"
                 + "if [ -f \"$OWN/" + NATIVE_ENV_NAME + "\" ]; then\n"
                 + "  . \"$OWN/" + NATIVE_ENV_NAME + "\"\n"
                 + "fi\n"
@@ -403,21 +443,120 @@ public final class CommandResolver {
         String path = q(modeFile.getAbsolutePath());
         return "#!/system/bin/sh\n"
                 + "# Generado por CommandResolver: motor de los comandos del agente.\n"
-                + "#   oc-engine status -> auto|proot|native\n"
-                + "#   oc-engine proot  -> todo dentro del sandbox\n"
-                + "#   oc-engine auto   -> reparto por comando (por defecto)\n"
-                + "#   oc-engine native -> fuerza nativo; solo para medir\n"
+                + "# Uso: oc-engine auto|proot|fast|status|help\n"
+                + "#\n"
+                + "#   auto   (por defecto) seguro: los binarios Termux van a proot;\n"
+                + "#          solo grep/sed/find... y los binarios Android corren nativos.\n"
+                + "#   proot  todo el comando dentro del sandbox (mas lento, maximo\n"
+                + "#          aislamiento y compatibilidad).\n"
+                + "#   fast   reparto antiguo solo para medir. PUEDE reproducir el\n"
+                + "#          error 'library libreadline.so.8 not found'; no usar\n"
+                + "#          para trabajo real.\n"
+                + "#   status imprime el modo actual (una palabra).\n"
+                + "#   help   imprime esta ayuda.\n"
                 + "CURRENT=auto\n"
                 + "if [ -r " + path + " ]; then read CURRENT < " + path + "; fi\n"
                 + "case \"${1:-status}\" in\n"
                 + "  status|get|\"\") echo \"$CURRENT\" ;;\n"
-                + "  auto|proot|native)\n"
-                + "    echo \"$1\" > " + path + " || exit 1\n"
-                + "    echo \"engine=$1\" ;;\n"
+                + "  auto)\n"
+                + "    echo auto > " + path + " || exit 1\n"
+                + "    echo \"engine=auto (seguro: binarios Termux -> proot)\" ;;\n"
+                + "  proot)\n"
+                + "    echo proot > " + path + " || exit 1\n"
+                + "    echo \"engine=proot (todo el comando dentro del sandbox)\" ;;\n"
+                + "  fast|native)\n"
+                + "    echo fast > " + path + " || exit 1\n"
+                + "    echo \"engine=fast (solo medicion; puede fallar libreadline)\" >&2 ;;\n"
+                + "  help|-h|--help)\n"
+                + "    echo \"oc-engine: motor de ejecucion de comandos de Adia\"\n"
+                + "    echo \"  oc-engine status  -> auto|proot|fast\"\n"
+                + "    echo \"  oc-engine auto    -> seguro (recomendado)\"\n"
+                + "    echo \"  oc-engine proot   -> todo en el sandbox Termux\"\n"
+                + "    echo \"  oc-engine fast    -> reparto antiguo, solo medicion\"\n"
+                + "    echo \"  oc-engine help    -> esta ayuda\"\n"
+                + "    echo \"Documentacion: docs/commands.md y docs/paths.md\" ;;\n"
                 + "  *)\n"
-                + "    echo \"uso: oc-engine [auto|proot|native|status]\" >&2\n"
+                + "    echo \"uso: oc-engine auto|proot|fast|status|help\" >&2\n"
                 + "    exit 2 ;;\n"
                 + "esac\n";
+    }
+
+    /**
+     * oc-doctor: comprueba las rutas que siempre deben existir, muestra el
+     * modo y pide al servidor Java el estado real (paquetes esenciales,
+     * proot, motor). Solo usa builtins y toybox: si bash esta roto, esto
+     * sigue funcionando.
+     */
+    private static String doctorScript(File home) {
+        StringBuilder files = new StringBuilder();
+        for (String path : LocalToolbox.essentialPaths()) {
+            files.append("check ").append(q(path)).append('\n');
+        }
+        return "#!/system/bin/sh\n"
+                + "# Generado por CommandResolver. Uso: oc-doctor\n"
+                + "# Diagnostico de rutas Termux/proot. No requiere bash ni curl.\n"
+                + "case \"$0\" in */*) OWN=${0%/*} ;; *) OWN=${PREFIX:-" + TERMUX_PREFIX + "}/bin ;; esac\n"
+                + "PORT=${OPENCODE_TOOLBOX_PORT:-" + ToolboxServer.PORT + "}\n"
+                + "TOK=${OPENCODE_TOOLBOX_TOKEN:-}\n"
+                + "MODE=$(cat " + q(modeFile(home).getAbsolutePath()) + " 2>/dev/null)\n"
+                + "[ -z \"$MODE\" ] && MODE=auto\n"
+                + "echo \"== oc-doctor ==\"\n"
+                + "echo \"engine=$MODE\"\n"
+                + "echo \"OC_ENGINE=${OC_ENGINE:-native}\"\n"
+                + "echo \"HOME=$HOME\"\n"
+                + "echo \"PREFIX=${PREFIX:-<no definido>}\"\n"
+                + "echo \"PWD=$PWD\"\n"
+                + "echo \"PATH=$PATH\"\n"
+                + "echo \"-- ficheros esenciales (prefijo visible) --\"\n"
+                + "check() { if [ -e \"${PREFIX:-/nonexistent}/$1\" ]; then echo \"OK      $1\"; else echo \"MISSING $1\"; fi; }\n"
+                + files
+                + "echo \"-- comprobacion en proot --\"\n"
+                + "/system/bin/sh \"$OWN/oc-proot\" 'echo proot-ok; echo PREFIX=$PREFIX; bash -c \"echo bash-ok\"; git --version | head -1' 2>&1\n"
+                + "post() {\n"
+                + "  if [ -x \"${PREFIX:-/nonexistent}/bin/curl\" ]; then\n"
+                + "    \"${PREFIX}/bin/curl\" -s -X POST --data \"token=$TOK\" \"$1\"\n"
+                + "  else\n"
+                + "    /system/bin/toybox wget -q -O - --post-data=\"token=$TOK\" \"$1\"\n"
+                + "  fi\n"
+                + "}\n"
+                + "echo \"-- estado del servidor (Java) --\"\n"
+                + "if [ -n \"$TOK\" ]; then\n"
+                + "  post \"http://127.0.0.1:$PORT/doctor\" 2>/dev/null || echo \"doctor-http-failed\"\n"
+                + "else\n"
+                + "  echo \"sin OPENCODE_TOOLBOX_TOKEN (abre el terminal desde la app)\"\n"
+                + "fi\n"
+                + "echo\n";
+    }
+
+    /**
+     * oc-repair: pide al servidor Java que rellene los esenciales que falten
+     * desde los .deb del APK (offline) y vuelve a pasar el diagnostico.
+     */
+    private static String repairScript(File home) {
+        return "#!/system/bin/sh\n"
+                + "# Generado por CommandResolver. Uso: oc-repair\n"
+                + "case \"$0\" in */*) OWN=${0%/*} ;; *) OWN=${PREFIX:-" + TERMUX_PREFIX + "}/bin ;; esac\n"
+                + "PORT=${OPENCODE_TOOLBOX_PORT:-" + ToolboxServer.PORT + "}\n"
+                + "TOK=${OPENCODE_TOOLBOX_TOKEN:-}\n"
+                + "if [ -z \"$TOK\" ]; then\n"
+                + "  echo \"oc-repair: falta OPENCODE_TOOLBOX_TOKEN; ejecutalo desde el terminal de Adia\" >&2\n"
+                + "  exit 2\n"
+                + "fi\n"
+                + "post() {\n"
+                + "  if [ -x \"${PREFIX:-/nonexistent}/bin/curl\" ]; then\n"
+                + "    \"${PREFIX}/bin/curl\" -s -X POST --data \"token=$TOK\" \"$1\"\n"
+                + "  else\n"
+                + "    /system/bin/toybox wget -q -O - --post-data=\"token=$TOK\" \"$1\"\n"
+                + "  fi\n"
+                + "}\n"
+                + "echo \"oc-repair: reparando el prefijo desde el APK (sin red)...\"\n"
+                + "post \"http://127.0.0.1:$PORT/repair\" 2>/dev/null || {\n"
+                + "  echo \"oc-repair: no se pudo hablar con el servidor local\" >&2\n"
+                + "  exit 1\n"
+                + "}\n"
+                + "echo\n"
+                + "echo \"oc-repair: hecho; comprobando...\"\n"
+                + "/system/bin/sh \"$OWN/oc-doctor\"\n";
     }
 
     private static String prootScript(File home, File nd, File tmp, File etc) {        File prefix = new File(home.getParentFile(), "usr");

@@ -3,8 +3,8 @@ plugins {
 }
 
 // CI passes -PadiaVersionName / -PadiaVersionCode / -PadiaRequireSigning.
-def adiaVersionCode = (findProperty("adiaVersionCode") ?: "3").toInteger()
-def adiaVersionName = findProperty("adiaVersionName") ?: "0.3.0-adia"
+def adiaVersionCode = (findProperty("adiaVersionCode") ?: "4").toInteger()
+def adiaVersionName = findProperty("adiaVersionName") ?: "0.3.4-adia"
 def adiaRequireSigning = findProperty("adiaRequireSigning") == "1"
 
 android {

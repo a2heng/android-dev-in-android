@@ -4,6 +4,7 @@ import android.content.Context;
 import android.util.Log;
 
 import java.io.BufferedReader;
+import java.io.File;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.net.ServerSocket;
@@ -164,6 +165,37 @@ public final class ToolboxServer {
             String out = LocalRuntime.runInSandbox(ctx, cmd, 60000);
             return "{\"ok\":true,\"out\":" + jsonString(out) + "}";
         }
+        // Diagnostico de rutas: lo llama oc-doctor. Devuelve JSON porque el
+        // agente lo puede leer sin depender de grep/jq.
+        if (path.startsWith("/doctor")) {
+            if (!authorized(ctx, q, headers)) return "{\"ok\":false,\"error\":\"denied\"}";
+            File pref = LocalToolbox.prefix(ctx);
+            StringBuilder sb = new StringBuilder("{\"ok\":true");
+            sb.append(",\"prefix\":").append(jsonString(pref.getAbsolutePath()));
+            sb.append(",\"installed\":").append(LocalToolbox.installed(ctx));
+            sb.append(",\"complete\":").append(LocalToolbox.complete(ctx));
+            sb.append(",\"missing\":").append(jsonArray(LocalToolbox.missingEssentials(ctx)));
+            sb.append(",\"engine\":").append(jsonString(
+                    CommandResolver.readMode(LocalRuntime.homeDir(ctx))));
+            sb.append(",\"runtime\":").append(jsonString(LocalRuntime.runtimeMode(ctx)));
+            sb.append(",\"proot_available\":").append(LocalRuntime.prootAvailable(ctx));
+            sb.append(",\"native_available\":").append(LocalRuntime.nativeAvailable(ctx));
+            sb.append(",\"sandbox\":").append(jsonString(
+                    LocalRuntime.runInSandbox(ctx,
+                            "echo PREFIX=$PREFIX; bash -c 'echo bash-ok' 2>&1; "
+                                    + "git --version 2>&1 | head -1; "
+                                    + "python3 --version 2>&1 | head -1; "
+                                    + "node --version 2>&1 | head -1", 20000)));
+            return sb.append('}').toString();
+        }
+        // Reparacion offline: extrae del APK los .deb cuyos ficheros
+        // esenciales falten. No necesita red ni reiniciar el servidor.
+        if (path.startsWith("/repair")) {
+            if (!authorized(ctx, q, headers)) return "{\"ok\":false,\"error\":\"denied\"}";
+            boolean ok = LocalToolbox.repairEssentials(ctx);
+            return "{\"ok\":" + ok + ",\"missing\":"
+                    + jsonArray(LocalToolbox.missingEssentials(ctx)) + "}";
+        }
         if (path.startsWith("/install")) {
             if (!authorized(ctx, q, headers)) return "{\"ok\":false,\"error\":\"denied\"}";
             List<String> names = new ArrayList<>();
@@ -207,6 +239,15 @@ public final class ToolboxServer {
         } catch (Exception e) {
             return s;
         }
+    }
+
+    private static String jsonArray(List<String> values) {
+        StringBuilder sb = new StringBuilder("[");
+        for (int i = 0; i < values.size(); i++) {
+            if (i > 0) sb.append(',');
+            sb.append(jsonString(values.get(i)));
+        }
+        return sb.append(']').toString();
     }
 
     private static String jsonString(String s) {

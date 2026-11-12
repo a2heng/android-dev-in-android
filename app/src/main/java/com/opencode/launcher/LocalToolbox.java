@@ -61,6 +61,26 @@ public final class LocalToolbox {
             "git", "python", "python-pip", "nodejs", "openssh", "make", "curl", "wget",
             "cmake", "ninja", "pkg-config", "binutils", "clang", "coreutils", "bash"));
 
+    /**
+     * Paquetes y ficheros sin los que ni bash ni el terminal pueden arrancar.
+     * Se comprueban en cada inicio; si falta uno se vuelve a extraer del .deb
+     * que viaja en el APK, sin red y sin depender de que dpkg haya terminado.
+     *
+     * <p>El caso real: una instalacion se corta a medias, dpkg deja bash pero
+     * no readline, y el linker responde "library libreadline.so.8 not found".
+     * Antes se marcaba el toolbox como completo igualmente y el fallo volvia
+     * en cada arranque.</p>
+     */
+    private static final String[][] ESSENTIALS = {
+            {"bash", "bin/bash"},
+            {"readline", "lib/libreadline.so.8"},
+            {"readline", "lib/libhistory.so.8"},
+            {"ncurses", "lib/libncursesw.so.6"},
+            {"libiconv", "lib/libiconv.so"},
+            {"libandroid-support", "lib/libandroid-support.so"},
+            {"termux-tools", "bin/pkg"}
+    };
+
     private LocalToolbox() {
     }
 
@@ -129,6 +149,88 @@ public final class LocalToolbox {
         } catch (IOException e) {
             return false;
         }
+    }
+
+    /**
+     * Lista de ficheros esenciales que no existen o cuyo enlace no resuelve.
+     * Se devuelve la ruta tal y como la ve el usuario (prefijo real), no la
+     * ruta del sandbox: sirve para el diagnostico y para decidir que extraer.
+     */
+    public static synchronized List<String> missingEssentials(Context ctx) {
+        List<String> out = new ArrayList<>();
+        File pref = prefix(ctx);
+        for (String[] item : ESSENTIALS) {
+            File file = new File(pref, item[1]);
+            if (!resolves(file)) out.add(item[1]);
+        }
+        return out;
+    }
+
+    /** Rutas relativas al prefijo que oc-doctor comprueba. */
+    public static List<String> essentialPaths() {
+        List<String> out = new ArrayList<>();
+        for (String[] item : ESSENTIALS) out.add(item[1]);
+        return out;
+    }
+
+    /** true si el fichero existe y, si es un enlace, su destino tambien. */
+    private static boolean resolves(File file) {
+        try {
+            return file.isFile() && file.getCanonicalFile().isFile();
+        } catch (IOException e) {
+            return false;
+        }
+    }
+
+    /**
+     * Repara el prefijo sin red: extrae del APK solo los paquetes cuyos
+     * ficheros esenciales faltan. No pisa ficheros existentes, asi que una
+     * version instalada por pkg no se degrada.
+     *
+     * <p>Se llama antes de arrancar opencode y desde /repair. Es idempotente y
+     * barata cuando todo esta bien: solo hace stat de siete rutas.</p>
+     */
+    public static synchronized boolean repairEssentials(Context ctx) {
+        if (!installed(ctx) || !hasBundledAssets(ctx)) {
+            // Sin .deb empaquetados (build desde el repo) no hay nada offline
+            // que extraer; pkg/apt se encargan de la instalacion por red.
+            return installed(ctx) && missingEssentials(ctx).isEmpty();
+        }
+        File pref = prefix(ctx);
+        LinkedHashSet<String> packages = new LinkedHashSet<>();
+        for (String path : missingEssentials(ctx)) {
+            for (String[] item : ESSENTIALS) {
+                if (item[1].equals(path)) packages.add(item[0]);
+            }
+        }
+        if (packages.isEmpty()) return true;
+
+        File debs = new File(workDir(ctx), "repair");
+        if (!debs.isDirectory() && !debs.mkdirs()) {
+            Log.w(TAG, "no se pudo crear " + debs);
+            return false;
+        }
+        boolean repaired = false;
+        for (String pkg : packages) {
+            File deb = new File(debs, pkg + ".deb");
+            try {
+                copyAsset(ctx, debs, pkg + ".deb");
+                extractDeb(deb, pref, true);
+                repaired = true;
+            } catch (Exception e) {
+                Log.w(TAG, "no se pudo reparar " + pkg + ": " + e.getMessage());
+            } finally {
+                //noinspection ResultOfMethodCallIgnored
+                deb.delete();
+            }
+        }
+        List<String> left = missingEssentials(ctx);
+        if (left.isEmpty()) {
+            Log.i(TAG, "prefijo reparado: " + packages);
+        } else {
+            Log.w(TAG, "siguen faltando esenciales: " + left);
+        }
+        return repaired && left.isEmpty();
     }
 
     /**
@@ -388,6 +490,7 @@ public final class LocalToolbox {
         Log.i(TAG, "dpkg: " + out.replace("\n", " | "));
         for (Pkg pkg : plan) now.add(pkg.name);
         writeManifest(ctx, now, idx);
+        repairEssentials(ctx);
         new File(prefix(ctx), ".opencode-toolbox").createNewFile();
         writePkgShim(ctx, prefix(ctx));
         deleteTree(stage);
@@ -482,6 +585,9 @@ public final class LocalToolbox {
             done.add(nameFromDeb(name));
         }
         writeManifestBundled(ctx, done, versions);
+        // Aunque dpkg haya fallado, los esenciales se extraen en Java y bash
+        // queda usable. Se comprueba antes de marcar el toolbox como listo.
+        repairEssentials(ctx);
         new File(pref, ".opencode-toolbox").createNewFile();
         writePkgShim(ctx, pref);
         deleteTree(stage);
@@ -877,6 +983,14 @@ public final class LocalToolbox {
 
     /** Desempaqueta un .deb (ar) y deja su contenido dentro del prefijo. */
     static void extractDeb(File deb, File pref) throws IOException {
+        extractDeb(deb, pref, false);
+    }
+
+    /**
+     * @param onlyMissing true para rellenar solo huecos (reparacion): no pisa
+     *                    ficheros ni enlaces que ya existen.
+     */
+    static void extractDeb(File deb, File pref, boolean onlyMissing) throws IOException {
         // Nombre unico: si un intento anterior dejo la carpeta a medias (o el
         // proceso murio durante la extraccion), no bloquea este intento.
         File tmp = new File(deb.getParentFile(),
@@ -894,7 +1008,7 @@ public final class LocalToolbox {
         if (!src.isDirectory()) {
             src = new File(tmp, "data/data/com.termux/files/usr");
         }
-        if (src.isDirectory()) mergeTree(src, pref);
+        if (src.isDirectory()) mergeTree(src, pref, onlyMissing);
         deleteTree(tmp);
         data.delete();
     }
@@ -981,6 +1095,15 @@ public final class LocalToolbox {
 
     /** Mueve un arbol dentro de otro, recreando enlaces simbolicos. */
     static void mergeTree(File src, File dst) throws IOException {
+        mergeTree(src, dst, false);
+    }
+
+    /**
+     * @param onlyMissing true para no tocar nada que ya exista. Es lo que usa
+     *                    la reparacion: si el usuario actualizo bash por pkg,
+     *                    no queremos volver al bash del APK.
+     */
+    static void mergeTree(File src, File dst, boolean onlyMissing) throws IOException {
         if (!dst.isDirectory() && !dst.mkdirs()) throw new IOException("no mkdir " + dst);
         File[] kids = src.listFiles();
         if (kids == null) return;
@@ -988,6 +1111,9 @@ public final class LocalToolbox {
             File target = new File(dst, k.getName());
             if (isSymlink(k)) {
                 if (target.exists() || isSymlink(target)) {
+                    // onlyMissing repara enlaces rotos, pero no pisa uno que
+                    // ya resuelve a un fichero real.
+                    if (onlyMissing && target.exists()) continue;
                     try {
                         Os.remove(target.getAbsolutePath());
                     } catch (ErrnoException ignored) {
@@ -1001,8 +1127,10 @@ public final class LocalToolbox {
                 continue;
             }
             if (k.isDirectory()) {
-                mergeTree(k, target);
+                if (!target.isDirectory() && target.exists() && onlyMissing) continue;
+                mergeTree(k, target, onlyMissing);
             } else {
+                if (target.exists() && onlyMissing) continue;
                 if (target.exists() && !target.delete()) {
                     // Si esta en uso, se deja el antiguo.
                     continue;

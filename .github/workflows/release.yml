@@ -82,6 +82,9 @@ jobs:
       - name: Fetch offline Termux toolbox
         run: python3 scripts/fetch-toolbox.py
 
+      - name: Verify offline toolbox (bash/readline/symlinks/DT_NEEDED)
+        run: python3 scripts/verify-toolbox.py
+
       - name: Warm Gradle cache for the bundled toolchain
         run: |
           chmod +x gradlew

@@ -21,6 +21,25 @@
   共享库缓存、国际化、安全、Gradle、发布、架构、网络、数据库、后台、16 KB、
   Termux 工具链、skill-installer。
 
+## 路径与命令（先读这两篇）
+
+Termux 的 ELF 把 `/data/data/com.termux/files/usr/lib` 编译进了
+`DT_RUNPATH`；只有 proot 沙箱里这个路径才存在。Adia 的命令分派和前缀
+自愈就是围绕这一条设计的：
+
+- **[`docs/paths.md`](docs/paths.md)** — 所有真实路径、沙箱路径、bind 表、
+  必需文件、自愈流程、`libreadline.so.8` 的根因与排查。
+- **[`docs/commands.md`](docs/commands.md)** — 所有 `oc-*` 命令的全名与用法、
+  `auto/proot/fast` 分派规则、叶子工具白名单、系统命令包装、迭代检查清单。
+
+日常自检：
+
+```sh
+oc-engine status   # auto / proot / fast
+oc-doctor          # 路径、必需文件、proot 实测
+oc-repair          # 缺 bash/readline 时离线补齐
+```
+
 ## 16 KB 页大小（官方建议，不是 4 KB 不可用）
 
 16 KB 对齐是 Google 对新设备和 Play 新应用的**建议/要求方向**，不是“4 KB
@@ -118,7 +137,7 @@ Adia 内置自己的 Compose 前端副本（`client/`），**不再使用 git su
 │     ├─ assets/toolbox/      # 离线 Termux .deb（构建产物，gitignored）
 │     ├─ assets/toolchain/    # 离线 SDK/Gradle/cache zip（构建产物，gitignored）
 │     └─ jniLibs/             # opencode/proot/musl 等预编译库
-├─ docs/                      # 调研、实施记录、构建说明
+├─ docs/                      # paths.md / commands.md 必读，另有调研与构建说明
 ├─ reference/                 # 只读参考项目（git submodules）
 ├─ scripts/                   # 离线包生成脚本
 ├─ dist/                      # 本地构建的 APK（gitignored）
@@ -132,17 +151,25 @@ Adia 内置自己的 Compose 前端副本（`client/`），**不再使用 git su
 运行时根目录：
 
 ```text
-ADIA_HOME = /data/user/0/com.a2heng.adia/files/home
+HOME = /data/data/com.a2heng.adia/files/home   # canonical，日志里不会是 /data/user/0
 ├─ workspace/                 # 所有用户项目；opencode 的 cwd
-├─ toolchain/                 # JDK、SDK 35、aapt2、Gradle、Maven 缓存、adb
+├─ toolchain/                 # JDK、SDK、aapt2、Gradle、Maven 缓存、adb
 │  ├─ android-sdk/
 │  ├─ gradle/
 │  ├─ gradle-home/
 │  └─ platform-tools/adb
 ├─ .config/opencode/          # opencode 配置、skills、tools
-├─ .config/opencode-android/  # 原生服务端配置 + skills 副本
-└─ .cache/                    # 临时文件（java.io.tmpdir 也指向这里）
+├─ .config/opencode-android/  # 服务端配置、engine-mode、skills 副本
+├─ .native-bin/git            # 指向 nativeLibraryDir/libgit.so 的跳板
+├─ .cache/                    # 临时文件（TMPDIR 也指向这里）
+└─ .oc-etc/                   # hosts / resolv.conf（bind 到 proot /etc）
+
+PREFIX（真实） = /data/data/com.a2heng.adia/files/usr
+PREFIX（沙箱） = /data/data/com.termux/files/usr   # proot bind
 ```
+
+完整表格（包括 `$TMPDIR`、XDG、nativeLibraryDir、toolbox 工作区）见
+[`docs/paths.md`](docs/paths.md)。
 
 - 不使用 `MANAGE_EXTERNAL_STORAGE`，不读写 `/sdcard`。
 - opencode 以 `workspace/` 为 cwd；项目都放在这里。
@@ -172,7 +199,8 @@ bash ~/.config/opencode/skills/android-build/scripts/build.sh /path/to/project d
 
 ### 从源码构建
 
-需要 JDK 17、Android SDK Platform 34、Build-Tools 34。
+需要 JDK 17（CI 固定）或 JDK 21（`D:\AndroidDevToolchain`），Android SDK
+Platform 37.0 / 36，Build-Tools 36.0.0。
 
 ```sh
 # 1) 补 opencode 运行时（仓库不提交 208 MB 的二进制）
@@ -196,6 +224,7 @@ Gradle 和 Maven 缓存，然后放到 `app/src/main/assets/`）：
 ```sh
 python scripts/fetch-opencode.py
 python scripts/fetch-toolbox.py
+python scripts/verify-toolbox.py   # 必须通过：bash/readline/符号链接/DT_NEEDED
 python scripts/make-toolchain.py
 
 ./gradlew :app:assembleDebug

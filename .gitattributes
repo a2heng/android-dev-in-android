@@ -2,6 +2,7 @@
 * text=auto
 # On-device shell scripts must keep LF: CRLF makes bash fail on Android.
 *.sh text eol=lf
+*.py text eol=lf
 app/src/main/assets/skills/** text eol=lf
 .gitmodules text eol=lf
 *.apk binary

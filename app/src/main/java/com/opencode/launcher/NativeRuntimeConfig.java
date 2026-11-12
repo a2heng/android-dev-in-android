@@ -20,8 +20,9 @@ import java.util.regex.Pattern;
  * free y rota la lista, y el usuario elige el suyo en la UI.
  *
  * El archivo se mantiene separado de opencode.json/opencode.jsonc para no
- * pisar la configuracion del usuario. Solo se pone "shell" si el usuario no
- * ha elegido ya uno.
+ * pisar el resto de la configuracion del usuario, pero "shell" siempre apunta
+ * a oc-shell: es la unica forma de garantizar que los comandos del agente
+ * pasan por el reparto seguro (ver docs/commands.md).
  */
 public final class NativeRuntimeConfig {
     private static final String TAG = "OpenCodeLocal";
@@ -46,8 +47,11 @@ public final class NativeRuntimeConfig {
         if (!destDir.isDirectory() && !destDir.mkdirs() && !destDir.isDirectory()) {
             throw new IOException("no se pudo crear " + destDir);
         }
-        boolean defaultShell = shellPath != null && !shellPath.isEmpty()
-                && !hasUserShell(userConfigDir);
+        // El shell del agente NO es configurable: si el usuario deja
+        // /system/bin/sh, opencode ejecuta los comandos fuera de oc-shell y
+        // vuelve el fallo de libreadline. La unica entrada segura es el
+        // trampolin generado por Adia.
+        boolean defaultShell = shellPath != null && !shellPath.isEmpty();
         byte[] body = build(defaultShell ? shellPath : null)
                 .getBytes(StandardCharsets.UTF_8);
         File dest = new File(destDir, FILE_NAME);

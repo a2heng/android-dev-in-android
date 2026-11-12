@@ -391,6 +391,10 @@ public final class LocalRuntime {
             // La raiz de proyectos debe existir siempre, tambien en modo proot:
             // el selector de sesiones la ofrece como "/" canonico.
             workspaceDir(app);
+            // Autocuracion + envoltorios: se hace antes de elegir motor para
+            // que el terminal y el agente vean el mismo prefijo sano aunque
+            // una instalacion anterior se cortara a medias.
+            prepareToolbox(app);
             if (nativeEnabled(app) && nativeAvailable(app)) {
                 try {
                     if (startNative(app, port)) {
@@ -409,6 +413,39 @@ public final class LocalRuntime {
             boolean ok = startProot(app, port);
             if (ok) Log.i(TAG, "runtime proot iniciado en 127.0.0.1:" + port);
             return ok;
+        }
+    }
+
+    /**
+     * Deja el prefijo y los envoltorios listos antes de arrancar cualquier
+     * motor. Si falta libreadline (instalacion a medias), se extrae del APK;
+     * despues se regeneran oc-shell/oc-proot/oc-doctor con las rutas de esta
+     * version del APK (nativeLibraryDir cambia en cada actualizacion).
+     */
+    private static void prepareToolbox(Context app) {
+        File home = homeDir(app);
+        try {
+            // Si la primera instalacion sigue en curso (sin marcador), no se
+            // toca el prefijo: dpkg esta escribiendo y reparar en paralelo
+            // dejaria ficheros mezclados.
+            if (LocalToolbox.complete(app)) {
+                LocalToolbox.repairEssentials(app);
+            }
+        } catch (Throwable t) {
+            Log.w(TAG, "no se pudo reparar el prefijo: " + t);
+        }
+        try {
+            File nd = new File(app.getApplicationInfo().nativeLibraryDir);
+            File tmp = new File(app.getCacheDir(), "tmp");
+            File etc = new File(home, ".oc-etc");
+            File binDir = LocalToolbox.installed(app)
+                    ? new File(LocalToolbox.prefix(app), "bin")
+                    : new File(home, "bin");
+            mkdirs(tmp);
+            mkdirs(etc);
+            CommandResolver.install(home, nd, tmp, etc, binDir);
+        } catch (Throwable t) {
+            Log.w(TAG, "no se pudieron regenerar los envoltorios: " + t);
         }
     }
 
@@ -460,7 +497,9 @@ public final class LocalRuntime {
         File binDir = LocalToolbox.installed(app)
                 ? new File(LocalToolbox.prefix(app), "bin")
                 : new File(home, "bin");
-        File wrapper = CommandResolver.install(home, nd, tmp, etc, binDir);
+        // prepareToolbox() ya genero el envoltorio con el nativeLibraryDir de
+        // esta instalacion; aqui solo se usa su ruta.
+        File wrapper = new File(binDir, CommandResolver.SHELL_NAME);
         Log.i(TAG, "motor de comandos: " + CommandResolver.readMode(home));
         // Android no deja hacer execve de scripts en files/ (untrusted_app).
         // El unico sitio ejecutable es nativeLibraryDir, donde va este
@@ -581,6 +620,9 @@ public final class LocalRuntime {
         Context app = ctx.getApplicationContext();
         if (!prootAvailable(app)) throw new IOException("runtime proot no disponible");
         if (!LocalToolbox.installed(app)) throw new IOException("toolbox no instalado");
+        // Antes de abrir el PTY: si falta readline/bash, se rellena desde el
+        // APK para que el terminal no arranque con "libreadline.so.8 not found".
+        if (LocalToolbox.complete(app)) LocalToolbox.repairEssentials(app);
         File nd = new File(app.getApplicationInfo().nativeLibraryDir);
         File home = homeDir(app);
         File tmp = new File(app.getCacheDir(), "tmp");

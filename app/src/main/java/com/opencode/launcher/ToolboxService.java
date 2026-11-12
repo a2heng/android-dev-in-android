@@ -138,6 +138,8 @@ public class ToolboxService extends Service {
         if (!SELFTEST_RUNNING.compareAndSet(false, true)) return;
         String[] cmds = {
                 "echo PATH=$PATH",
+                "test -f $PREFIX/lib/libreadline.so.8 && echo readline-ok",
+                "bash -lc 'echo bash-ok'",
                 "git --version",
                 "python3 --version",
                 "pip3 --version",

@@ -1,3 +1,46 @@
+# Adia v0.3.4
+
+Android Dev In Android —— 在手机上运行 opencode 和完整的 Android 构建工具链，离线优先。
+
+## 本版重点：Termux 路径问题永久修复
+
+- **根因**：Termux 的 `bash` 把 `DT_RUNPATH=/data/data/com.termux/files/usr/lib`
+  编译进了 ELF。这个路径只在 proot 沙箱里存在；在真实空间直接执行就报
+  `CANNOT LINK EXECUTABLE "bash": library "libreadline.so.8" not found`。
+- **分派改为拒绝优先**：`auto`（默认）现在把**所有**前缀命令（除叶子工具
+  `grep/sed/find/...`）整条送进 proot；命令里出现 `$`、`./`、`../`、`.sh`、
+  `.py`、`.js` 也送 proot。不再依赖“命令名看起来像不像 Termux 命令”的启发式。
+- **不再允许旧的 `native` 设置复活 bug**：`engine-mode=native` 启动时自动迁移为
+  `auto`；`fast` 只保留为测速对照，`oc-engine help` 会明确警告。
+- **前缀自愈**：每次启动检查 7 个必需文件（`bash`、`libreadline.so.8`、
+  `libhistory.so.8`、`libncursesw.so.6`、`libiconv.so`、
+  `libandroid-support.so`、`bin/pkg`）。缺哪个就从 APK 的 `.deb` 离线补齐，
+  只补缺失文件，不覆盖用户升级过的包。
+- **首次安装顺序修正**：`bootstrap.txt` 现在先解包 `bash`/`readline` 及其依赖，
+  再跑 dpkg。这样即使 dpkg 失败，shell 也能启动；不会再出现“bash 在、readline
+  不在，却已标记安装完成”的半残前缀。
+- **新增诊断/修复命令**：
+  - `oc-doctor`：路径、必需文件、proot 实测、Java 状态；
+  - `oc-repair`：从 APK 离线补齐缺失文件；
+  - `oc-engine help`：所有模式的中文说明。
+- **构建前校验**：`scripts/verify-toolbox.py` 会从 `.deb` 建立虚拟文件系统，
+  检查必需文件、符号链接、`bootstrap.txt` 顺序，以及 `bash`/`git`/`python3`/
+  `node`/`clang` 等 ELF 的 `DT_NEEDED` 是否都有包提供；release workflow
+  已加入该步骤。
+
+## 文档
+
+- 新增 [`docs/paths.md`](docs/paths.md)：所有真实/沙箱路径、bind 表、自愈流程、
+  `libreadline` 根因与排查、不变量清单。
+- 新增 [`docs/commands.md`](docs/commands.md)：所有 `oc-*` 命令全名与用法、
+  `auto/proot/fast` 分派、叶子工具白名单、系统命令包装、迭代检查清单。
+- 更新 `termux` skill 与 README，明确“auto 已自动路由，不要用 fast 做正事”。
+
+## 仍然保持
+
+- 应用名 **Adia**，包名 `com.a2heng.adia`，opencode **2.2.7**。
+- 22 个内置 skill、离线工具链、16 KB 对齐检查、本机 Termux 终端。
+
 # Adia v0.3.3
 
 Android Dev In Android —— 在手机上运行 opencode 和完整的 Android 构建工具链，离线优先。
