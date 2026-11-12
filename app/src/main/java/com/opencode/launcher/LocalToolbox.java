@@ -131,6 +131,42 @@ public final class LocalToolbox {
         }
     }
 
+    /**
+     * Garantiza que el prefijo tenga util-linux ("script"), que es lo que abre
+     * el PTY del terminal local. Las instalaciones anteriores a la v0.3.3 no
+     * lo tienen aunque el marcador .opencode-toolbox ya exista, asi que se
+     * extrae del propio APK sin tocar la base de datos de dpkg.
+     */
+    public static synchronized boolean ensureTerminalTools(Context ctx) {
+        File script = new File(prefix(ctx), "bin/script");
+        if (script.isFile()) return true;
+        // Dependencias declaradas por util-linux 2.42 + libuuid por si acaso.
+        String[] pkgs = {
+                "util-linux", "libsmartcols", "libcap-ng", "libandroid-glob",
+                "libandroid-posix-semaphore", "ncurses", "zlib", "libuuid"
+        };
+        File debs = new File(workDir(ctx), "debs");
+        if (!debs.isDirectory() && !debs.mkdirs()) return false;
+        for (String pkg : pkgs) {
+            String asset = pkg + ".deb";
+            File deb = new File(debs, asset);
+            try {
+                copyAsset(ctx, debs, asset);
+                extractDeb(deb, prefix(ctx));
+            } catch (Exception e) {
+                // Si el APK no trae el paquete, se sigue: script puede venir de
+                // otro sitio o el terminal usara el modo sin PTY.
+                Log.w(TAG, "no se pudo extraer " + asset + ": " + e.getMessage());
+            } finally {
+                //noinspection ResultOfMethodCallIgnored
+                deb.delete();
+            }
+        }
+        boolean ok = script.isFile();
+        Log.i(TAG, "terminal tools: util-linux " + (ok ? "listo" : "ausente"));
+        return ok;
+    }
+
     /** Paquetes ya instalados (del manifiesto). */
     public static List<String> installedPackages(Context ctx) {
         List<String> out = new ArrayList<>();

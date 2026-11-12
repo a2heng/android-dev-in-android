@@ -143,8 +143,11 @@ public class MobileFrontendActivity extends AppCompatActivity {
         mounted = true;
         String pwd = LocalRuntime.serverPassword(this);
         try {
-            LocalRuntime.ensureRootfs(this);
-            String fsRoot = LocalRuntime.rootfsDir(this).getAbsolutePath();
+            // El explorador y los terminales usan el sistema de archivos real:
+            // "/" es la raiz Android y "~" el HOME de la app. Antes se pasaba
+            // un rootfs de enlaces, pero el servidor v2 no lista symlinks y
+            // dejaba la raiz vacia.
+            LocalRuntime.workspaceDir(this);
             com.a2heng.opencode.mobile.LocalShellSpawner shell = () -> {
                 try {
                     return LocalRuntime.localShell(this);
@@ -153,7 +156,7 @@ public class MobileFrontendActivity extends AppCompatActivity {
                     return null;
                 }
             };
-            com.a2heng.opencode.mobile.OpenCodeMobileHost.show(this, URL, pwd, shell, fsRoot);
+            com.a2heng.opencode.mobile.OpenCodeMobileHost.show(this, URL, pwd, shell, null);
         } catch (Throwable t) {
             Log.w(TAG, "frontend Compose fallo; se abre el WebView", t);
             mounted = false;

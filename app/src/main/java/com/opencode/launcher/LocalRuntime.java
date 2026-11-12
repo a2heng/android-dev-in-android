@@ -126,6 +126,30 @@ public final class LocalRuntime {
         }
     }
 
+    /**
+     * Retira el rootfs de enlaces que creaba la version anterior. El servidor
+     * opencode v2 no lista symlinks, asi que esa carpeta solo aparecia como
+     * una raiz vacia. Solo se borra si todos sus hijos son enlaces: si el
+     * usuario metio algo real ahi, se conserva.
+     */
+    private static void pruneGeneratedRootfs(Context ctx) {
+        File rf = new File(homeDir(ctx), "rootfs");
+        File[] kids = rf.listFiles();
+        if (kids == null || kids.length == 0) return;
+        for (File kid : kids) {
+            try {
+                if (!android.system.OsConstants.S_ISLNK(
+                        Os.lstat(kid.getAbsolutePath()).st_mode)) {
+                    return;
+                }
+            } catch (Exception e) {
+                return;
+            }
+        }
+        deleteTree(rf);
+        Log.i(TAG, "rootfs de enlaces retirado: " + rf);
+    }
+
     private static void deleteGit(File dir) {
         File git = new File(dir, ".git");
         if (!git.isDirectory()) return;
@@ -363,7 +387,10 @@ public final class LocalRuntime {
             AppLog.init(app);
             cleanManagedGit(app);
             pruneTransientCaches(app);
-            ensureRootfs(app);
+            pruneGeneratedRootfs(app);
+            // La raiz de proyectos debe existir siempre, tambien en modo proot:
+            // el selector de sesiones la ofrece como "/" canonico.
+            workspaceDir(app);
             if (nativeEnabled(app) && nativeAvailable(app)) {
                 try {
                     if (startNative(app, port)) {
@@ -541,70 +568,14 @@ public final class LocalRuntime {
     }
 
     /**
-     * Ejecuta un comando dentro del mismo sandbox (proot) en el que vive el
-     * agente, y devuelve su salida. Lo usa el servidor de herramientas para
-     * comprobar el entorno y para el shim "pkg".
-     */
-    /** Raiz virtual para el explorador de archivos del frontend: prefijo Termux. */
-    public static File rootfsDir(Context ctx) {
-        File rf = new File(homeDir(ctx), "rootfs");
-        try {
-            mkdirs(rf);
-        } catch (IOException ignored) {
-        }
-        return rf;
-    }
-
-    /**
-     * Construye ~/rootfs como una raiz estilo Linux con enlaces al prefijo:
-     * bin/, sbin/, lib/, etc/, usr/, var/ apuntan al prefijo de Termux;
-     * home/ y root/ al HOME real; system/, data/, sdcard/ al Android real.
-     * El explorador del frontend usa esta carpeta como "/".
-     */
-    public static void ensureRootfs(Context ctx) {
-        File home = homeDir(ctx);
-        File rf = rootfsDir(ctx);
-        link(rf, "usr", "../usr");
-        link(rf, "bin", "usr/bin");
-        link(rf, "sbin", "usr/bin");
-        link(rf, "lib", "usr/lib");
-        link(rf, "lib64", "usr/lib");
-        link(rf, "libexec", "usr/libexec");
-        link(rf, "etc", "usr/etc");
-        link(rf, "include", "usr/include");
-        link(rf, "share", "usr/share");
-        link(rf, "var", "usr/var");
-        link(rf, "opt", "usr/opt");
-        link(rf, "tmp", "usr/tmp");
-        link(rf, "home", ".");
-        link(rf, "root", ".");
-        link(rf, "cache", "../cache");
-        link(rf, "system", "/system");
-        link(rf, "vendor", "/vendor");
-        link(rf, "data", "/data");
-        link(rf, "sdcard", "/storage/emulated/0");
-        link(rf, "mnt", "/mnt");
-        link(rf, "proc", "/proc");
-        link(rf, "dev", "/dev");
-        try {
-            mkdirs(new File(home, "usr/tmp"));
-        } catch (IOException ignored) {
-        }
-    }
-
-    private static void link(File dir, String name, String target) {
-        File f = new File(dir, name);
-        try {
-            if (f.exists()) return;
-            android.system.Os.symlink(target, f.getAbsolutePath());
-        } catch (Exception ignored) {
-        }
-    }
-
-    /**
      * Shell local para el terminal del frontend embebido: proot + prefix/bin/script,
      * que abre un PTY real y ejecuta bash. Asi el terminal de Adia no depende del
      * PTY de opencode (roto en Android por bun-pty).
+     *
+     * <p>Si la instalacion del toolbox es anterior a util-linux, se extrae el
+     * paquete del propio APK antes de lanzar el shell; si aun asi no hay
+     * "script", se arranca bash sin PTY (echo local desactivado, pero usable)
+     * en vez de devolver un proceso que muere al instante.</p>
      */
     public static Process localShell(Context ctx) throws IOException {
         Context app = ctx.getApplicationContext();
@@ -628,13 +599,34 @@ public final class LocalRuntime {
         File proot = new File(nd, "libproot.so");
         File loader = new File(nd, "libproot_loader.so");
         Map<String, String> env = buildEnv(app, home, tmp, etc, lib, nd, loader, prootTmp);
-        List<String> cmd = prootCmd(app, home, tmp, etc, musl, proot, env,
+        List<String> base = prootCmd(app, home, tmp, etc, musl, proot, env,
                 home.getAbsolutePath());
-        cmd.add(LocalToolbox.SANDBOX_PREFIX + "/bin/script");
-        cmd.add("-q");
-        cmd.add("-c");
-        cmd.add("exec bash -l");
-        cmd.add("/dev/null");
+        boolean hasScript = LocalToolbox.ensureTerminalTools(app);
+        if (hasScript) {
+            List<String> scriptCmd = new ArrayList<>(base);
+            scriptCmd.add(LocalToolbox.SANDBOX_PREFIX + "/bin/script");
+            scriptCmd.add("-q");
+            scriptCmd.add("-c");
+            scriptCmd.add("exec bash -l");
+            scriptCmd.add("/dev/null");
+            Process p = startShell(scriptCmd, home, env);
+            // Si script muere enseguida (falta una lib, no puede abrir /dev/ptmx,
+            // etc.) el terminal se quedaria en negro. Se cae a bash sin PTY.
+            if (aliveAfter(p, 350)) return p;
+            Log.w(TAG, "script termino al arrancar; terminal local sin PTY");
+            p.destroy();
+        } else {
+            Log.w(TAG, "script no disponible; terminal local sin PTY");
+        }
+        List<String> bashCmd = new ArrayList<>(base);
+        bashCmd.add(LocalToolbox.SANDBOX_PREFIX + "/bin/bash");
+        bashCmd.add("-i");
+        bashCmd.add("-l");
+        return startShell(bashCmd, home, env);
+    }
+
+    private static Process startShell(List<String> cmd, File home, Map<String, String> env)
+            throws IOException {
         ProcessBuilder pb = new ProcessBuilder(cmd);
         pb.directory(home);
         pb.redirectErrorStream(true);
@@ -643,6 +635,20 @@ public final class LocalRuntime {
         return pb.start();
     }
 
+    private static boolean aliveAfter(Process p, long ms) {
+        try {
+            Thread.sleep(ms);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+        return p.isAlive();
+    }
+
+    /**
+     * Ejecuta un comando dentro del mismo sandbox (proot) en el que vive el
+     * agente, y devuelve su salida. Lo usa el servidor de herramientas para
+     * comprobar el entorno y para el shim "pkg".
+     */
     public static String runInSandbox(Context ctx, String command, int timeoutMs) {
         try {
             Context app = ctx.getApplicationContext();
