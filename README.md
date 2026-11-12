@@ -153,7 +153,7 @@ Adia 内置自己的 Compose 前端副本（`client/`），**不再使用 git su
 ```text
 HOME = /data/data/com.a2heng.adia/files/home   # canonical，日志里不会是 /data/user/0
 ├─ workspace/                 # 所有用户项目；opencode 的 cwd
-├─ toolchain/                 # JDK、SDK、aapt2、Gradle、Maven 缓存、adb
+├─ toolchain/                 # SDK、aapt2、Gradle、Maven 缓存、adb（JDK 在 $PREFIX）
 │  ├─ android-sdk/
 │  ├─ gradle/
 │  ├─ gradle-home/
