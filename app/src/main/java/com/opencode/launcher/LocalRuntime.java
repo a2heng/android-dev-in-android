@@ -610,7 +610,7 @@ public final class LocalRuntime {
             scriptCmd.add(LocalToolbox.SANDBOX_PREFIX + "/bin/script");
             scriptCmd.add("-q");
             scriptCmd.add("-c");
-            scriptCmd.add("exec bash -l");
+            scriptCmd.add("stty rows 40 cols 100 2>/dev/null; exec bash -l");
             scriptCmd.add("/dev/null");
             Process p = startShell(scriptCmd, home, env);
             // Si script muere enseguida (falta una lib, no puede abrir /dev/ptmx,

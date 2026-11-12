@@ -53,9 +53,11 @@ missing, ask before `OC_BUILD_ONLINE=1`.
 ## Debug on device
 
 ```sh
-ADB=$HOME/toolchain/platform-tools/adb
-$ADB shell run-as com.example.app ls databases
-$ADB shell run-as com.example.app sqlite3 databases/app.db '.tables'
+oc-proot 'adb shell run-as com.example.app ls databases'
+oc-proot "adb shell run-as com.example.app sqlite3 databases/app.db '.tables'"
 ```
+
+Run adb inside proot; `ADB=$HOME/toolchain/...; "$ADB"` outside proot gives
+`Permission denied`.
 
 `sqlite3` may not be present on the device; do not depend on it for the app.

@@ -48,6 +48,11 @@ files at startup. It never deletes project `build/` directories automatically.
 
 ## Workflow
 
+> If `oc-engine status` is `auto` or `native`, run the whole command through
+> `oc-proot`, e.g. `oc-proot 'bash <skill-dir>/scripts/build.sh /path debug'`.
+> The scripts start with `#!/data/data/com.termux/files/usr/bin/bash` and must
+> not be executed natively from app-private storage.
+
 ### 1. One-time toolchain setup
 
 Run this once per app install (idempotent):

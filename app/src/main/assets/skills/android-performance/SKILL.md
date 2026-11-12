@@ -8,10 +8,11 @@ description: Measure and improve Android app performance on the phone: startup t
 ## Measure first
 
 ```sh
-ADB=$HOME/toolchain/platform-tools/adb
-$ADB shell am force-stop com.example.app
-$ADB shell am start -W -n com.example.app/.MainActivity
+oc-proot 'adb shell am force-stop com.example.app'
+oc-proot 'adb shell am start -W -n com.example.app/.MainActivity'
 ```
+
+Run adb inside proot; a shell variable assigned outside proot is not routed.
 
 `TotalTime`/`WaitTime` are the startup numbers. Run 3 times, report the median,
 not the best run.
@@ -19,14 +20,14 @@ not the best run.
 Jank and frames:
 
 ```sh
-$ADB shell dumpsys gfxinfo com.example.app framestats
-$ADB shell dumpsys gfxinfo com.example.app | grep -E "Janky|percentile"
+oc-proot 'adb shell dumpsys gfxinfo com.example.app framestats'
+oc-proot 'adb shell dumpsys gfxinfo com.example.app | grep -E "Janky|percentile"'
 ```
 
 Memory:
 
 ```sh
-$ADB shell dumpsys meminfo com.example.app
+oc-proot 'adb shell dumpsys meminfo com.example.app'
 ```
 
 ## Common fixes

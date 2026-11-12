@@ -6,23 +6,63 @@ description: Use the bundled Termux userland on this phone (bash, git, python, n
 # Termux toolbox on Adia
 
 Adia ships a Termux-style userland inside the APK. It is not the Termux app:
-there is no separate Termux install, and you do not need one. The agent shell
-already runs inside the Adia sandbox, with the toolbox on `PATH`.
+there is no separate Termux install, and you do not need one. The toolbox is on
+`PATH`, but **on native mode its binaries still need proot** (see below).
 
-## Mental model
+## Native vs proot (read this first)
 
 There are two kinds of binaries on the phone:
 
 1. **Android system binaries** — `/system/bin/sh`, `am`, `pm`, `dumpsys`,
    `logcat`, `input`, `screencap`. They run directly.
-2. **Termux binaries** — `bash`, `git`, `python`, `node`, `clang`, `cmake`,
-   `ninja`, `ssh`, `curl`, `pkg`, `apt`, `adb`… They live in the Termux prefix
-   and need the Termux linker/loader. Adia runs the opencode server inside a
-   proot sandbox so these work normally.
+2. **Termux/toolchain binaries** — `bash`, `git`, `python`, `node`, `clang`,
+   `cmake`, `ninja`, `ssh`, `curl`, `pkg`, `apt`, `adb`… and anything under
+   `$HOME/toolchain`. They live in app-private storage; Android returns
+   `Permission denied` (EACCES) if a native process tries to `execve` them.
+
+The opencode server may run natively (`oc-engine status` = `auto` or `native`).
+The shell wrapper only routes a command to proot when it can see a Termux path
+or a known proot command **in the command line**. Variable expansion hides that
+path, so this **fails**:
+
+```sh
+ADB="$HOME/toolchain/platform-tools/adb"; "$ADB" devices
+ADB="$PREFIX/bin/adb"; "$ADB" devices
+# Permission denied / inaccessible or not found
+```
+
+Put the **whole command inside `oc-proot`**, so the variable expands inside the
+sandbox:
+
+```sh
+oc-proot 'adb devices'
+oc-proot 'ADB="$HOME/toolchain/platform-tools/adb"; "$ADB" version'
+oc-proot 'bash "$HOME/project/scripts/build.sh" debug'
+```
+
+Rules:
+
+- Check `oc-engine status`:
+  - `auto`: wrap commands that need Termux/toolchain binaries in
+    `oc-proot '<command>'`.
+  - `proot`: every command already runs inside the sandbox; run it normally and
+    do **not** nest another `oc-proot`.
+  - `native`: measurement-only mode; it skips the proot routing. Run
+    `oc-engine auto` first if you need prefix/toolchain binaries.
+- `oc-proot '<command>'` — run one command in the sandbox. This is the safe
+  default for Termux/toolchain binaries and for scripts that call them.
+- A literal prefix path also works (the wrapper sees it):
+  `/data/data/com.termux/files/usr/bin/adb devices`.
+- `oc-engine proot` switches the whole session to proot (slower; use when many
+  commands need it); restore with `oc-engine auto`.
+- Prefer the Termux `adb` at `$PREFIX/bin/adb` (matching aarch64 build) over
+  `$HOME/toolchain/platform-tools/adb`; both must run inside proot.
+- Never `chmod +x` and exec an app-private binary from Java/`ProcessBuilder`;
+  Android denies it. Use the shell wrapper or proot.
 
 Do not mix their libraries: an Android binary must not inherit Termux
 `LD_LIBRARY_PATH`, and a Termux binary must not be launched with the Android
-linker by hand. Use the shell that Adia provides and let it route the command.
+linker by hand.
 
 ## Paths
 
@@ -152,14 +192,16 @@ termux-am start ...
 ## Pitfalls
 
 - **`CANNOT LINK EXECUTABLE … library "libX.so" not found`** — the Termux
-  binary was launched without its prefix libraries. Run it from the Adia shell
-  (or `oc-proot '<cmd>'` in native mode), not with the Android linker.
-- **`Permission denied` / `exec format error`** — a Termux ELF was executed
-  directly from the app data directory by an Android process. Use the shell
-  wrapper/proot; do not `chmod +x` and exec it from a Java `ProcessBuilder`.
+  binary was launched without its prefix libraries. Run it inside proot:
+  `oc-proot '<command>'` (or `oc-engine proot` for a batch).
+- **`Permission denied` / `inaccessible or not found` / `exec format error`** —
+  a Termux/toolchain ELF or script was executed directly from the app data
+  directory by an Android process (often through a shell variable such as
+  `ADB="$HOME/..."`). Move the whole command into `oc-proot '...'`; do not
+  `chmod +x` and exec it from a Java `ProcessBuilder`.
 - **`command not found` for a bundled tool** — check `echo $PATH`; the prefix
   must be first. In a script started by an Android service, source
-  `oc-native-env.sh` or run through `oc-proot`.
+  `oc-native-env.sh` or run the whole script through `oc-proot`.
 - **`/tmp` is not the Android `/tmp`** — it is bound to the app cache. Files
   there are disposable; do not put results there.
 - **Long-running jobs** — background them with `setsid`/`nohup` and write a log

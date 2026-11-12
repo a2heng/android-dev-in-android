@@ -2,7 +2,18 @@
 # Install and launch an APK, then print the first log lines for its package.
 # Usage: install-run.sh <apk> <package> [activity]
 set -eu
+# IMPORTANT: run through proot, e.g.
+#   oc-proot 'bash <this-script> <args>'
+# adb lives in app-private storage; native exec gives Permission denied.
 : "${HOME:?HOME is not set}"
+
+# Re-exec inside proot if launched natively. adb is in app-private storage;
+# native exec returns Permission denied. When already inside proot, OC_ENGINE=proot
+# and oc-proot itself is idempotent, so this is safe.
+if [ "${OC_ENGINE:-}" != "proot" ]; then
+  P="${PREFIX:-$HOME/../usr}"
+  exec /system/bin/sh "$P/bin/oc-proot" "bash '$0' $*"
+fi
 APK="${1:?usage: install-run.sh <apk> <package> [activity]}"
 PKG="${2:?usage: install-run.sh <apk> <package> [activity]}"
 ACT="${3:-}"

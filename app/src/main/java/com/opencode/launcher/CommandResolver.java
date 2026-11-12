@@ -427,6 +427,11 @@ public final class CommandResolver {
         return "#!/system/bin/sh\n"
                 + "# Generado por CommandResolver: comando dentro del sandbox proot.\n"
                 + "CMD=\"${1:-exec /system/bin/sh}\"\n"
+                // Si ya estamos dentro de proot (OC_ENGINE=proot), no anidar otro
+                // proot: oc-proot es idempotente.
+                + "if [ \"${OC_ENGINE:-}\" = \"proot\" ]; then\n"
+                + "  exec /system/bin/sh -c \"$CMD\"\n"
+                + "fi\n"
                 + "unset BASH_ENV ENV LD_PRELOAD\n"
                 + "if [ ! -d " + q(prefix.getAbsolutePath()) + " ]; then\n"
                 + "  echo \"proot: la caja de herramientas aun se esta instalando\" >&2\n"
