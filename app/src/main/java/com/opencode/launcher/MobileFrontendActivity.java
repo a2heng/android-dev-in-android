@@ -21,7 +21,7 @@ import java.net.URL;
 import java.nio.charset.StandardCharsets;
 
 /**
- * Host ligero del frontend Compose embebido (:client de opencode-mobile).
+ * Host ligero del frontend Compose embebido (:client interno de Adia).
  *
  * <p>No carga WebView ni el layout clasico: solo arranca el runtime local,
  * espera a que el servicio responda y monta la UI Compose. Es el modo

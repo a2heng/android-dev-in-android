@@ -1,0 +1,44 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- 柔光外圈：只是模糊的「O」的感觉，不是任何现有 logo 的复制 -->
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#FFFFFF"
+        android:strokeAlpha="0.08"
+        android:strokeWidth="18"
+        android:pathData="M54,27 a27,27 0 1,1 -0.01,0" />
+
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#FFFFFF"
+        android:strokeAlpha="0.16"
+        android:strokeWidth="12"
+        android:pathData="M54,28 a26,26 0 1,1 -0.01,0" />
+
+    <!-- 主环 -->
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#EEF2F7"
+        android:strokeAlpha="0.95"
+        android:strokeWidth="6.5"
+        android:strokeLineCap="round"
+        android:pathData="M54,30 a24,24 0 1,1 -0.01,0" />
+
+    <!-- 内侧淡淡的回声 -->
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#EEF2F7"
+        android:strokeAlpha="0.14"
+        android:strokeWidth="2.5"
+        android:pathData="M54,37 a17,17 0 1,1 -0.01,0" />
+
+    <!-- 中心的小点：像终端光标，也避免和任何字母图标撞脸 -->
+    <path
+        android:fillColor="#7DCFFF"
+        android:fillAlpha="0.9"
+        android:pathData="M54,50.5 a3.5,3.5 0 1,1 -0.01,0" />
+</vector>

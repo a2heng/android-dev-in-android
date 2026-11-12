@@ -16,7 +16,7 @@ dependencyResolutionManagement {
 rootProject.name = "Adia"
 include(":app")
 
-// Frontend (OpenCode Mobile) vive como submodulo y se compila dentro de este APK:
-// no hay que instalar ninguna app aparte.
+// Frontend: copia interna en client/. Sin submodulos: el cliente de LAN
+// (a2heng/opencode-android-ui) y Adia evolucionan por separado.
 include(":client")
-project(":client").projectDir = file("mobile/opencode-mobile/client")
+project(":client").projectDir = file("client")

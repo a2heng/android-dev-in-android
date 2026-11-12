@@ -63,7 +63,3 @@
 	url = https://github.com/lzhiyong/android-sdk-tools.git
 	branch = master
 	shallow = true
-[submodule "mobile/opencode-mobile"]
-	path = mobile/opencode-mobile
-	url = https://github.com/a2heng/opencode-mobile.git
-	branch = main

@@ -54,20 +54,18 @@ python3 app/src/main/assets/skills/android-build/scripts/check-16kb.py \
   app/src/main/jniLibs/arm64-v8a
 ```
 
-## 与 OpenCode Mobile 整合（实验支线 `feat/proot-mobile-ui`）
+## 与 OpenCode 安卓 UI 的关系
 
-Adia 负责**本机后端**，前端交给自己的原生 Compose 客户端
-[`opencode-mobile`](https://github.com/a2heng/opencode-mobile)：
+Adia 内置自己的 Compose 前端副本（`client/`），**不再使用 git submodule**：
 
-- 前端以 **git submodule** 放在 `mobile/opencode-mobile`（只读参考 + 源码）。
-- Adia 暴露只读 `ContentProvider`（`content://<applicationId>.local-server/info`），
-  在 `com.a2heng.adia.permission.LOCAL_SERVER_INFO`（normal）保护下返回
-  `{url, username, password, running}`；前端启动时自动拿到并连上
-  `127.0.0.1:4096/4098`，不用再手输密码。
-- 运行模式 `auto / native / proot`，编译期用 `-PadiaRuntime=proot` 固定成
+- `client/` 是 Adia 仓库内的独立模块，直接 `include(":client")`，构建不需要初始化任何子模块。
+- 独立的局域网客户端已经改名为 **OpenCode 安卓 UI**：
+  [`a2heng/opencode-android-ui`](https://github.com/a2heng/opencode-android-ui)。
+- 两边只是共享过一套界面代码，之后各自演进；改 Adia 不会再碰 mobile 仓库，反之亦然。
+- 运行模式仍是 `auto / native / proot`，编译期可用 `-PadiaRuntime=proot` 固定成
   Termux 风格的 proot 沙箱。
 
-细节、协议和构建步骤见 [`docs/mobile-integration.md`](docs/mobile-integration.md)。
+细节见 [`docs/mobile-integration.md`](docs/mobile-integration.md)。
 
 ## 现在能做什么
 

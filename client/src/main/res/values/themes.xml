@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.OpenCodeMobile" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">#0E1116</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:windowLightStatusBar">false</item>
+    </style>
+
+    <!-- Android 12+ 启动画面；旧版本由 core-splashscreen 兼容 -->
+    <style name="Theme.OpenCodeMobile.Splash" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenBackground">#0E1116</item>
+        <item name="windowSplashScreenAnimatedIcon">@drawable/ic_launcher_foreground</item>
+        <item name="postSplashScreenTheme">@style/Theme.OpenCodeMobile</item>
+    </style>
+</resources>
