@@ -233,6 +233,24 @@ oc-repair                 # 缺文件时从 APK 离线补齐
 日志：`/data/data/<pkg>/files/logs/adia.log`，过滤 `OpenCodeLocal`、
 `OpenCodeToolbox`、`runtime`。
 
+### 安装后 60 秒验收（每次发版都做）
+
+在 Adia 的本机终端里依次执行：
+
+```sh
+oc-engine status        # 期望：auto
+oc-doctor               # 期望：没有 MISSING，proot-ok/bash-ok/git 版本都出现
+bash -lc 'git --version'
+python3 --version
+pkg install -y jq
+```
+
+四条都通过才算“路径问题已解决”。任何一条失败：
+
+1. `oc-repair`；
+2. 再看 `oc-doctor` 的 `missing`；
+3. 仍然失败就抓 `files/logs/adia.log` 里 `OpenCodeToolbox` / `OpenCodeLocal` 的行。
+
 ---
 
 ## 9. 加新工具 / 新包的标准流程
