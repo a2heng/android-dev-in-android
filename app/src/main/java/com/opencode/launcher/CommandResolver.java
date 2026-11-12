@@ -598,6 +598,12 @@ public final class CommandResolver {
                 + "export NO_COLOR=1\n"
                 + "export PROOT_LOADER=" + q(new File(nd, "libproot_loader.so").getAbsolutePath()) + "\n"
                 + "export PROOT_TMP_DIR=" + q(prootTmp.getAbsolutePath()) + "\n"
+                // El cwd del agente debe sobrevivir al salto a proot. Antes se
+                // forzaba HOME: por eso "pwd" dentro de un comando con bash
+                // devolvia HOME y build.sh buscaba el proyecto en el sitio
+                // equivocado cuando se usaba "$PWD/...".
+                + "WORKDIR=\"${PWD:-$HOME}\"\n"
+                + "if [ ! -d \"$WORKDIR\" ]; then WORKDIR=\"$HOME\"; fi\n"
                 + "exec " + q(new File(nd, "libproot.so").getAbsolutePath()) + " --kill-on-exit \\\n"
                 + "  -b " + q(tmp.getAbsolutePath() + ":/tmp") + " \\\n"
                 + "  -b " + q(new File(nd, "libld_musl.so").getAbsolutePath()
@@ -605,7 +611,7 @@ public final class CommandResolver {
                 + "  -b " + q(prefix.getAbsolutePath() + ":" + TERMUX_PREFIX) + " \\\n"
                 + "  -b " + q(new File(etc, "hosts").getAbsolutePath() + ":/etc/hosts") + " \\\n"
                 + "  -b " + q(new File(etc, "resolv.conf").getAbsolutePath() + ":/etc/resolv.conf") + " \\\n"
-                + "  -w " + q(home.getAbsolutePath()) + " \\\n"
+                + "  -w \"$WORKDIR\" \\\n"
                 + "  /system/bin/sh -c \"$CMD\"\n";
     }
 

@@ -589,9 +589,14 @@ public final class LocalToolbox {
         }
         writeManifestBundled(ctx, done, versions);
         // Aunque dpkg haya fallado, los esenciales se extraen en Java y bash
-        // queda usable. Se comprueba antes de marcar el toolbox como listo.
-        repairEssentials(ctx);
-        new File(pref, ".opencode-toolbox").createNewFile();
+        // queda usable. El marcador solo se escribe si de verdad estan todos:
+        // si no, el siguiente arranque reintenta en vez de dejar un prefijo
+        // a medias marcado como completo.
+        if (repairEssentials(ctx)) {
+            new File(pref, ".opencode-toolbox").createNewFile();
+        } else {
+            Log.e(TAG, "toolbox incompleto: no se marca como instalado");
+        }
         writePkgShim(ctx, pref);
         deleteTree(stage);
         return done;

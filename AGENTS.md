@@ -14,8 +14,12 @@
 6. **Never hardcode** `com.a2heng.adia`, `com.termux`, `nativeLibraryDir` or a
    JDK/SDK path in shell scripts. Use `$HOME`, `$PREFIX`, `$TMPDIR`; generate
    `nativeLibraryDir` paths at runtime.
-7. **`oc-proot` must stay idempotent** (`OC_ENGINE=proot` does not nest).
-8. **Build/verify locally with the pinned toolchain:**
+7. **`oc-proot` must stay idempotent** (`OC_ENGINE=proot` does not nest) and
+   must preserve the caller's `$PWD` as `proot -w`; forcing `$HOME` makes
+   `$PWD/project` look at the wrong directory.
+8. **Do not create a second copy of generated wrappers** in `$HOME/bin` once
+   the toolbox exists; `LocalRuntime.cleanLegacyHomeBin` removes the old ones.
+9. **Build/verify locally with the pinned toolchain:**
 
    ```sh
    source /d/AndroidDevToolchain/env.sh
@@ -24,9 +28,9 @@
    ./gradlew :app:assembleDebug
    ```
 
-9. **Before tagging a release:** `python scripts/verify-toolbox.py` must pass;
-   release CI runs it too. Do not tag if it fails.
-10. **Update both docs** when changing behavior. The 60-second acceptance test
+10. **Before tagging a release:** `python scripts/verify-toolbox.py` must pass;
+    release CI runs it too. Do not tag if it fails.
+11. **Update both docs** when changing behavior. The 60-second acceptance test
     is in `docs/paths.md`; run it on a real device (`oc-engine status`,
     `oc-doctor`, `bash -lc 'git --version'`, `python3 --version`,
     `pkg install -y jq`).

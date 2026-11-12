@@ -234,7 +234,10 @@ fun SessionsScreen(
                             }
                         }
                     } else {
-                        items(rest, key = { it.id }) { session ->
+                        // recent 已经从 rest 里取走了前几条；这里必须用
+                        // groupedRest，否则同一会话会出现两次（数量显示 1，
+                        // 列表却有两行）。
+                        items(groupedRest, key = { it.id }) { session ->
                             SessionRow(model, session, onOpenCache)
                         }
                     }

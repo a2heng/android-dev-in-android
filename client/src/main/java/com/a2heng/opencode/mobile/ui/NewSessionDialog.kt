@@ -48,13 +48,13 @@ import com.a2heng.opencode.mobile.data.FsEntry
  * 目录来自 /api/fs/list：entry.path 是相对**当前 location** 的，所以拼绝对
  * 路径时要用当前 path（不是固定的根）。
  *
- * `~` 和 `/` 指向我们自己的规范位置：
- * - `~`  = 服务端 HOME（GET /api/location）；
- * - `/`  = HOME/workspace（项目区）。真正的 Android 根目录既不能当项目，
+ * `HOME` 和 `项目区` 指向我们自己的规范位置：
+ * - `HOME`  = 服务端 HOME（GET /api/location）；
+ * - `项目区` = HOME/workspace。真正的 Android 根目录既不能当项目，
  *   还会让整个选择器卡住，所以不在这里暴露。
  *
- * 根节点固定为真实 `/`，不随服务端返回的 location 变化；`~` 和 `/` 胶囊
- * 负责跳到规范位置，「上一级」不会被重置。
+ * 根节点固定为真实 `/`，不随服务端返回的 location 变化；两个胶囊负责跳到
+ * 规范位置，「上一级」不会被重置。
  */
 @Composable
 fun NewSessionDialog(
@@ -137,12 +137,12 @@ fun NewSessionDialog(
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
                     sessionChip(
-                        label = "~",
+                        label = "HOME",
                         selected = path.trimEnd('/') == home,
                     ) { if (home.isNotBlank()) path = home }
                     val workspace = model.sessionRoot()
                     sessionChip(
-                        label = "/",
+                        label = "项目区",
                         selected = workspace.isNotBlank() && path.trimEnd('/') == workspace,
                     ) { path = workspace.ifBlank { home } }
                 }

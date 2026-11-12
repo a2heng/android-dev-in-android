@@ -17,7 +17,7 @@
     <!-- Lo concede el propio APK (protectionLevel normal) para que OpenCode
          Mobile pueda leer la URL y la contrasena del servidor local. -->
     <permission
-        android:name="com.a2heng.adia.permission.LOCAL_SERVER_INFO"
+        android:name="${applicationId}.permission.LOCAL_SERVER_INFO"
         android:protectionLevel="normal" />
 
     <!-- Android 11+ no deja ver otros paquetes sin declararlos: hacen falta
@@ -103,7 +103,7 @@
             android:name=".LocalServerInfoProvider"
             android:authorities="${applicationId}.local-server"
             android:exported="true"
-            android:readPermission="com.a2heng.adia.permission.LOCAL_SERVER_INFO" />
+            android:readPermission="${applicationId}.permission.LOCAL_SERVER_INFO" />
         <receiver
             android:name=".BootReceiver"
             android:exported="true">

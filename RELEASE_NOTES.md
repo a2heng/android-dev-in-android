@@ -1,3 +1,37 @@
+# Adia v0.3.5
+
+Android Dev In Android —— 在手机上运行 opencode 和完整的 Android 构建工具链，离线优先。
+
+## 本版重点：文件页和安装期体验
+
+- **文件页根目录改为 `HOME`**：不再从 Android 真实 `/` 开始（应用沙箱读不到，
+  点开只会是空）。路径栏显示 `~`，列表直接是 `.android`、`.cache`、
+  `.config`、`toolchain`、`workspace` 等真实可读目录。
+- **去掉误导性的 `/` 和 `/tmp/opencode` 胶囊**：这两个入口在 Adia 里不可达，
+  点开只有空目录；现在只保留 `~`、当前会话目录和最近项目。
+- **修复会话列表重复**：没有运行中的会话时，顶部「最近」取了前 3 条，
+  下面的列表又用完整的 `rest` 渲染，导致同一会话出现两次（数量却只显示 1）。
+  现在下半部分只用 `groupedRest`。
+- **新建会话胶囊改成 `HOME` / `项目区`**：不再用含义模糊的 `/` 表示
+  `$HOME/workspace`。
+- **首次安装未完成时不再打开半残 bash**：终端会明确提示
+  “toolbox 正在安装”，而不是抛 `libreadline.so.8`。只有 7 个必需文件
+  都齐了才写 `.opencode-toolbox` 标记。
+- **调试/正式包可共存**：自定义权限名改为 `${applicationId}.permission...`，
+  debug 包不会再因为 `INSTALL_FAILED_DUPLICATE_PERMISSION` 装不上。
+- **修复 0 字节文件**：解压中断留下的空文件会被当作缺失，从 APK 重新补齐。
+- 安装和离线修复串行化，避免首次安装和 `oc-repair` 同时写前缀。
+
+## 仍然保持 v0.3.4 的路径修复
+
+- `auto` 拒绝优先：前缀命令整条进 proot；`fast` 仅测速。
+- 每次启动自愈 7 个必需文件（bash/readline/ncurses/libiconv/
+  libandroid-support/pkg）。
+- `bootstrap.txt` 先解包 bash/readline，再跑 dpkg。
+- `oc-doctor` / `oc-repair` / `oc-engine help`。
+- `scripts/verify-toolbox.py` 在 release CI 检查 bash 的 `DT_NEEDED`
+  和符号链接。
+
 # Adia v0.3.4
 
 Android Dev In Android —— 在手机上运行 opencode 和完整的 Android 构建工具链，离线优先。

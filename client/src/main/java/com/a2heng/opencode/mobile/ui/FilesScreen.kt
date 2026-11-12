@@ -115,12 +115,12 @@ private fun FsListPane(model: AppModel) {
     var folderName by remember { mutableStateOf("") }
 
     Column(Modifier.fillMaxSize()) {
-        // 预设文件夹胶囊：~、/、/tmp/opencode、当前会话目录、最近项目（自动换行，最多约 5 行后滚动）
+        // 预设文件夹胶囊：~、当前会话目录、最近项目（自动换行，最多约 5 行后滚动）。
+        // 不提供 "/" 和 "/tmp/opencode"：Adia 的应用沙箱读不到真实根目录，
+        // 点开只会是空的，反而让人以为文件系统坏了。
         val presets = remember(model.homeDir, model.current?.id, model.sessions, model.fsDir, model.fsRootOverride) {
             buildList {
                 if (model.homeDir.isNotBlank()) add("~" to model.homeDir)
-                add("/" to model.fsBase())
-                add("/tmp/opencode" to "/tmp/opencode")
                 model.expandSessionDir(model.current?.directory)?.let { add("当前会话" to it) }
                 model.sessions.forEach { s ->
                     val dir = model.expandSessionDir(s.directory) ?: return@forEach
@@ -293,14 +293,14 @@ private fun parentDir(current: String, base: String): String? {
     return if (b.isNotEmpty() && b != "/" && !isUnder(b, parent)) b else parent
 }
 
-/** Ruta visible: relativa a la raiz; la propia raiz se muestra como "/". */
+/** Ruta visible: relativa a HOME; la propia raiz se muestra como "~". */
 private fun pathLabel(base: String, dir: String): String {
     val b = base.trimEnd('/')
     val d = dir.trimEnd('/')
     return when {
-        d.isBlank() -> "/"
-        b.isNotEmpty() && d == b -> "/"
-        b.isNotEmpty() && b != "/" && d.startsWith("$b/") -> d.removePrefix(b)
+        d.isBlank() -> "~"
+        b.isNotEmpty() && d == b -> "~"
+        b.isNotEmpty() && b != "/" && d.startsWith("$b/") -> "~" + d.removePrefix(b)
         else -> d
     }
 }

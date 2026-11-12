@@ -186,6 +186,9 @@ oc-proot '<整条命令>'
 - 正确：`oc-proot 'cd ~/workspace/app && ./gradlew assembleDebug'`
 - 错误：`oc-proot adb devices`（只取到 `adb`）
 - 幂等：已经 `OC_ENGINE=proot` 时直接 `sh -c`，不会嵌套 proot。
+- **继承调用者的当前目录**：`oc-proot` 用 `$PWD` 作为 proot 的 `-w`；只有
+  目录不存在时才回退到 `$HOME`。所以在 `workspace/测试` 里执行
+  `oc-proot 'pwd'` 得到的是 `workspace/测试`，不是 HOME。
 - 会 unset `BASH_ENV`/`ENV`/`LD_PRELOAD`，防止宿主的原生函数污染沙箱。
 
 ### 6.2 `oc-engine`

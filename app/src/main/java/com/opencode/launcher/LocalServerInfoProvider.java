@@ -29,7 +29,8 @@ import org.json.JSONObject;
 public final class LocalServerInfoProvider extends ContentProvider {
     private static final String TAG = "OpenCodeLocal";
     public static final String AUTHORITY_SUFFIX = ".local-server";
-    public static final String PERMISSION = "com.a2heng.adia.permission.LOCAL_SERVER_INFO";
+    public static final String PERMISSION =
+            BuildConfig.APPLICATION_ID + ".permission.LOCAL_SERVER_INFO";
     static final String[] COLUMNS = {"info"};
 
     @Override

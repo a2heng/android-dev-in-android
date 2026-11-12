@@ -156,7 +156,11 @@ public class MobileFrontendActivity extends AppCompatActivity {
                     return null;
                 }
             };
-            com.a2heng.opencode.mobile.OpenCodeMobileHost.show(this, URL, pwd, shell, null);
+            // El explorador arranca en HOME, no en el "/" real: la app no
+            // puede leer la raiz Android y esa vista solo mostraba vacio.
+            com.a2heng.opencode.mobile.OpenCodeMobileHost.show(
+                    this, URL, pwd, shell,
+                    LocalRuntime.homeDir(this).getAbsolutePath());
         } catch (Throwable t) {
             Log.w(TAG, "frontend Compose fallo; se abre el WebView", t);
             mounted = false;

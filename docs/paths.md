@@ -121,7 +121,44 @@ proot 由 `LocalRuntime` 启动，bind 表如下（`CommandResolver.prootScript`
 
 ---
 
-## 4. 前缀里必须有什么（自愈清单）
+## 3.1 实际运行审计（2026-11-12，PKB110）
+
+在一次真实会话（cwd `$HOME/workspace/测试`，项目 `DenoiseLab`）里观察到的路径：
+
+| 路径 | 大小 | 作用 | 判定 |
+|---|---:|---|---|
+| `$HOME/workspace/测试` | 24 MB | 会话 cwd / 项目父目录 | 真路径 |
+| `$HOME/workspace/测试/DenoiseLab` | 24 MB | 实际 Gradle 项目 | 真路径（嵌套是用户选的目录结构） |
+| `$HOME/toolchain/android-sdk` | 160 MB | SDK 36 / build-tools 36 | 真路径 |
+| `$HOME/toolchain/gradle` | 147 MB | Gradle 9.9.0 发行版 | 真路径 |
+| `$HOME/toolchain/gradle-home` | 1.1 GB | `GRADLE_USER_HOME`，共享依赖缓存 | 真路径（可清理，见下） |
+| `$PREFIX` | 1.1 GB | Termux 用户态 + JDK 21 | 真路径 |
+| `$HOME/.local/share/opencode` | 16 MB | DB、日志、shell 记录 | 真路径 |
+| `$HOME/.config/opencode` | 321 KB | 默认配置 + skills + tools | 真路径（proot/默认） |
+| `$HOME/.config/opencode-android` | 302 KB | 原生服务端配置 + skills 副本 | 设计上的副本 |
+| `$HOME/bin` | 0 | 旧 `oc-*` 包装脚本 | **已清理**（曾经是冗余） |
+| `$HOME/lib` | 2.9 MB | 原生 linker 用的 libstdc++/libgcc | 真路径 |
+| `$PREFIX/bin/adb` + `$HOME/toolchain/platform-tools/adb` | 3.5 MB + 7.4 MB | 两个 adb | 有意保留的 fallback |
+
+结论：
+
+- **`files/usr` 和 `files/home` 不是重复**：前者是 Termux 前缀（真实路径），后者是
+  用户 HOME；proot 只是把前者 bind 到 `/data/data/com.termux/files/usr`。
+- **`toolchain/` 和 `$PREFIX` 不是重复**：`toolchain` 是 Android SDK/Gradle 缓存，
+  `$PREFIX` 是 Termux 用户态和 JDK。两者都由 `build.sh` 显式使用。
+- **两个 `.config` 目录是设计上的重复**：原生 opencode 的 `OPENCODE_CONFIG_DIR`
+  指向 `opencode-android`，默认目录 `opencode` 仍给 proot/兼容路径用。skills
+  因此有两份（约 600 KB）；opencode v2 不列 symlink，所以没有用软链合并。
+- **`$HOME/bin` 曾经是 bug**：首次启动时 toolbox 还没装，包装脚本生成在这里；
+  装好后又在 `$PREFIX/bin` 生成一份，旧的 `$HOME/bin/oc-*` 成了死副本。现在
+  启动时会自动删除这 6 个旧文件。
+- **`workspace/测试/DenoiseLab` 不是重复**：会话目录是 `测试`，项目是它下面的
+  `DenoiseLab`；如果希望路径更短，新建会话时直接选 `DenoiseLab`。
+- **`/` 和 `/tmp/opencode` 不是真路径**：`/` 是 Android 根，应用无权读；
+  `/tmp` 在 proot 里映射到 `$TMPDIR`（`cache/tmp`），没有 `opencode` 子目录。
+  文件页已不再显示这两个入口。
+
+---
 
 `LocalToolbox.ESSENTIALS` 是唯一的“不可缺失”清单：
 
@@ -178,8 +215,11 @@ proot 由 `LocalRuntime` 启动，bind 表如下（`CommandResolver.prootScript`
 4. `nativeLibraryDir` 相关的路径只能在运行时生成，不得写死到脚本或文档示例。
 5. 沙箱内的 `PREFIX` 必须是 `/data/data/com.termux/files/usr`；真实前缀只用于
    Java 解包和 `linker64` 的 `LD_LIBRARY_PATH`。
-6. `oc-proot` 必须幂等：`OC_ENGINE=proot` 时不得再次调用 proot。
-7. 新增“可能 exec 子进程”的工具时，不得加入 `SAFE_NATIVE`。
+6. **proot 必须继承调用者的 cwd**：`oc-proot` 用 `$PWD` 做 `-w`，不能写死
+   `$HOME`。否则 `pwd`/`$PWD/project` 会在 HOME 下找项目，出现“文件明明
+   写了却 build 找不到”的假路径。
+7. `oc-proot` 必须幂等：`OC_ENGINE=proot` 时不得再次调用 proot。
+8. 新增“可能 exec 子进程”的工具时，不得加入 `SAFE_NATIVE`。
 
 违反任一条，`libreadline.so.8` / `Permission denied` 就会回来。
 

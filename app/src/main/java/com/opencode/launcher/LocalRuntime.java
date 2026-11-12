@@ -444,8 +444,29 @@ public final class LocalRuntime {
             mkdirs(tmp);
             mkdirs(etc);
             CommandResolver.install(home, nd, tmp, etc, binDir);
+            // Primer arranque: los envoltorios se generaron en $HOME/bin
+            // porque el prefijo aun no existia. Al instalarse el toolbox se
+            // generan en $PREFIX/bin; los viejos de $HOME/bin quedan muertos
+            // y hacen pensar que hay dos juegos de comandos.
+            if (LocalToolbox.installed(app)) cleanLegacyHomeBin(home);
         } catch (Throwable t) {
             Log.w(TAG, "no se pudieron regenerar los envoltorios: " + t);
+        }
+    }
+
+    private static void cleanLegacyHomeBin(File home) {
+        File dir = new File(home, "bin");
+        String[] names = {
+                CommandResolver.SHELL_NAME, CommandResolver.PROOT_NAME,
+                CommandResolver.ENGINE_NAME, CommandResolver.NATIVE_ENV_NAME,
+                CommandResolver.DOCTOR_NAME, CommandResolver.REPAIR_NAME
+        };
+        for (String name : names) {
+            File f = new File(dir, name);
+            if (f.isFile() || java.nio.file.Files.isSymbolicLink(f.toPath())) {
+                //noinspection ResultOfMethodCallIgnored
+                f.delete();
+            }
         }
     }
 
@@ -620,9 +641,15 @@ public final class LocalRuntime {
         Context app = ctx.getApplicationContext();
         if (!prootAvailable(app)) throw new IOException("runtime proot no disponible");
         if (!LocalToolbox.installed(app)) throw new IOException("toolbox no instalado");
+        // No abras un bash a medias: si la primera instalacion sigue en curso,
+        // el terminal mostraria libreadline.so.8. Mejor un error claro que se
+        // puede reintentar cuando termine.
+        if (!LocalToolbox.complete(app)) {
+            throw new IOException("toolbox instalándose; espera y reintenta");
+        }
         // Antes de abrir el PTY: si falta readline/bash, se rellena desde el
         // APK para que el terminal no arranque con "libreadline.so.8 not found".
-        if (LocalToolbox.complete(app)) LocalToolbox.repairEssentials(app);
+        LocalToolbox.repairEssentials(app);
         File nd = new File(app.getApplicationInfo().nativeLibraryDir);
         File home = homeDir(app);
         File tmp = new File(app.getCacheDir(), "tmp");
