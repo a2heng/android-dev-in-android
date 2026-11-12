@@ -1,3 +1,35 @@
+# Adia v0.3.3
+
+Android Dev In Android —— 在手机上运行 opencode 和完整的 Android 构建工具链，离线优先。
+
+## 本版重点
+
+- **前端内置，去掉子模块**：Compose 客户端复制到 `client/`，`:client` 直接随 Adia
+  编译；删除 `mobile/opencode-mobile` 子模块。独立的局域网客户端更名为
+  **OpenCode 安卓 UI**（[`a2heng/opencode-android-ui`](https://github.com/a2heng/opencode-android-ui)）。
+  两个项目不再有构建依赖，往后各自演进。
+- **本机 Termux 终端**：宿主用 proot + `prefix/bin/script` 开真 PTY，不再依赖
+  服务端 PTY（Android 上 bun-pty 不可用）。缺 util-linux 时从 APK 补装；
+  `script` 启动失败自动回退到无 PTY 的 bash。
+- **终端布局与旋转**：本机终端与服务器 PTY 共用固定键盘占位（竖屏 46% /
+  横屏 37%）、Ctrl/Shift/Alt、Tab/^C/Esc、方向键、Home/End、A−/A+。
+  进程和 emulator 放在 ViewModel，旋转屏幕或切页签不再退回终端列表。
+- **路径统一**：新建会话 `~` = HOME，`/` = `HOME/workspace`；文件页
+  `~` = HOME，`/` = 真实文件系统根；去掉 symlink 拼成的 rootfs（opencode v2
+  不列 symlink）；根目录文件读取使用 `location=/`。
+- **proot 命令**：skills 明确要求 `oc-proot '<整条命令>'`，避免
+  `ADB=$HOME/toolchain/...; "$ADB"` 被原生执行导致 `Permission denied`；
+  android-debug 脚本在原生启动时自动 re-exec 到 proot；`oc-proot` 幂等，
+  不会嵌套 proot。
+- **构建**：`compileSdk 37` / `platforms;android-37.0`，CI/Release 安装该平台；
+  AGP 9.5.1 / Gradle 9.9.0；内置 opencode **2.2.7**。
+
+## 仍然保持
+
+- 本机 opencode 后端（native / proot / auto 可切换）、离线工具链、
+  22 个内置 skill、16 KB 对齐检查。
+- 应用名 **Adia**，包名 `com.a2heng.adia`（debug 为 `.debug`），可与旧版共存。
+
 # Adia v0.3.2
 
 Android Dev In Android —— 在手机上运行 opencode 和完整的 Android 构建工具链，离线优先。
