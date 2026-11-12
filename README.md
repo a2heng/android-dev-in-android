@@ -30,13 +30,13 @@ Termux 的 ELF 把 `/data/data/com.termux/files/usr/lib` 编译进了
 - **[`docs/paths.md`](docs/paths.md)** — 所有真实路径、沙箱路径、bind 表、
   必需文件、自愈流程、`libreadline.so.8` 的根因与排查。
 - **[`docs/commands.md`](docs/commands.md)** — 所有 `oc-*` 命令的全名与用法、
-  **`auto` = 整条命令无条件进 proot**（`fast` 仅 debug）、命令↔路径矩阵、
-  原理解释表、系统命令包装、迭代检查清单。
+  **唯一运行时 = proot**、命令↔路径矩阵、原理解释表、系统命令包装、
+  迭代检查清单。
 
 日常自检：
 
 ```sh
-oc-engine status   # auto / proot（fast 仅 debug）
+oc-engine status   # proot（唯一模式）
 oc-doctor          # 路径、必需文件、proot 实测
 oc-repair          # 缺 bash/readline 时离线补齐
 ```
@@ -82,9 +82,8 @@ Adia 内置自己的 Compose 前端副本（`client/`），**不再使用 git su
 - 独立的局域网客户端已经改名为 **OpenCode 安卓 UI**：
   [`a2heng/opencode-android-ui`](https://github.com/a2heng/opencode-android-ui)。
 - 两边只是共享过一套界面代码，之后各自演进；改 Adia 不会再碰 mobile 仓库，反之亦然。
-- **服务端进程**模式仍是 `auto / native / proot`（这是 opencode 服务器本身，
-  不是命令引擎；命令引擎见 `oc-engine`），编译期可用 `-PadiaRuntime=proot`
-  固定成 Termux 风格的 proot 沙箱。
+- **服务端进程只有 proot**：opencode 服务器、终端、agent 和构建都在同一个
+  proot 命名空间；没有 native/auto/fast 模式，也没有 `-PadiaRuntime` 开关。
 
 细节见 [`docs/mobile-integration.md`](docs/mobile-integration.md)。
 
@@ -162,7 +161,7 @@ HOME = /data/data/com.a2heng.adia/files/home   # canonical，日志里不会是 
 │  └─ platform-tools/adb
 ├─ .config/opencode/          # opencode 配置、skills、tools
 ├─ .config/opencode-android/  # 服务端配置、engine-mode、skills 副本
-├─ .native-bin/git            # 指向 nativeLibraryDir/libgit.so 的跳板
+├─ .native-bin/git            # 旧版遗留；当前完全 proot，不再使用
 ├─ .cache/                    # 临时文件（TMPDIR 也指向这里）
 └─ .oc-etc/                   # hosts / resolv.conf（bind 到 proot /etc）
 

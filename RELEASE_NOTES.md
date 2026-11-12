@@ -1,3 +1,42 @@
+# Adia v0.4.0
+
+Android Dev In Android —— 在手机上运行 opencode 和完整的 Android 构建工具链，离线优先。
+
+## 本版重点：完全 proot + 可恢复的更新下载
+
+### 一个运行时：proot
+
+- **服务器、终端、agent、构建全部在同一个 proot 命名空间**。删除了
+  `startNative`、`runtime_mode`、`auto/fast/native`、`oc-shell`、
+  `oc-proot`、`oc-native-env.sh` 和 `.native-bin/git`。
+- `oc-engine` 只作为兼容命令，`status` 永远返回 `proot`；不再有模式切换。
+- `oc-doctor` / `oc-repair` 保留；`oc-doctor` 的 `PWD`/`PREFIX` 检查直接
+  在 proot 内执行。
+- 系统命令（`am`/`pm`/`dumpsys`…）继续用 `$PREFIX/bin` 包装，先清理
+  `LD_LIBRARY_PATH`/`LD_PRELOAD` 再 exec `/system/bin/*`。
+- 这一版没有“命令分类”可讲：命令写出来，就在沙箱里。
+
+### 更新 APK：断点续传 + 取消后可重下
+
+- 新增 `AppUpdateService`：下载到
+  `Android/data/<pkg>/files/updates/launcher-<tag>.apk.part`，用 HTTP
+  `Range` 续传；杀进程、断网、重启后都能从 `.part` 继续。
+- **已下载完整的 APK 不会重复下载**：再次点更新会直接打开系统安装器。
+- 取消安装/返回不会删除 APK；下次点“更新”直接安装。
+- 下载通知带 **取消**；取消会删掉 `.part`，下次从 0 重新下载。
+- 失败通知带 **重试**；重试会从 `.part` 续传。
+- 校验 APK 包名/大小后才标记为可安装，避免把半截文件交给安装器。
+
+### 构建缓存：离线缺依赖自动补一次
+
+- `build.sh` 在 `--offline` 因缓存 metadata 不匹配失败时，会**只重试一次
+  online**，补齐缺失的依赖；下一次构建继续离线可用。
+- Release 流水线在打包 toolchain 前会预热一组小体积、高频依赖
+  （AndroidX core/appcompat、Material、activity、constraintlayout、
+  Kotlin stdlib），同时写入 `files-2.1` 和 `metadata-*`。
+- `ToolchainInstaller.VERSION` 升到 7：已安装的旧 toolchain 会被替换，
+  不会继续用缺少 metadata 的旧缓存。
+
 # Adia v0.3.6
 
 Android Dev In Android —— 在手机上运行 opencode 和完整的 Android 构建工具链，离线优先。

@@ -1,0 +1,27 @@
+// Resolve the most common Android UI dependencies into the shared Gradle
+// cache before scripts/make-toolchain.py packages it. This fills both
+// files-2.1 (artifacts) and metadata-*/descriptors (the index Gradle uses in
+// --offline mode). Keep this list small and high-frequency; large/rare
+// libraries should be downloaded on demand by build.sh's online fallback.
+plugins {
+    id 'base'
+}
+
+configurations {
+    common
+}
+
+dependencies {
+    common 'androidx.core:core:1.18.0'
+    common 'androidx.appcompat:appcompat:1.8.0'
+    common 'com.google.android.material:material:1.14.0'
+    common 'androidx.activity:activity:1.8.0'
+    common 'androidx.constraintlayout:constraintlayout:2.2.1'
+    common 'org.jetbrains.kotlin:kotlin-stdlib:2.2.10'
+}
+
+tasks.register('resolveCommon') {
+    doLast {
+        configurations.common.resolve().each { println it }
+    }
+}

@@ -15,14 +15,12 @@ import java.util.regex.Pattern;
 /**
  * Genera la configuracion extra que se carga con OPENCODE_CONFIG_DIR.
  *
- * Solo fija "shell" (el trampolin nativo) y desactiva autoupdate. No define
- * proveedores ni modelo: el proveedor oficial "opencode" ya trae los modelos
- * free y rota la lista, y el usuario elige el suyo en la UI.
+ * Solo fija "shell" (el bash del prefijo, ya dentro de proot) y desactiva
+ * autoupdate. No define proveedores ni modelo: el proveedor oficial "opencode"
+ * ya trae los modelos free y rota la lista, y el usuario elige el suyo en la UI.
  *
  * El archivo se mantiene separado de opencode.json/opencode.jsonc para no
- * pisar el resto de la configuracion del usuario, pero "shell" siempre apunta
- * a oc-shell: es la unica forma de garantizar que los comandos del agente
- * pasan por el reparto seguro (ver docs/commands.md).
+ * pisar el resto de la configuracion del usuario.
  */
 public final class NativeRuntimeConfig {
     private static final String TAG = "OpenCodeLocal";

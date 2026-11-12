@@ -3,16 +3,47 @@
 本文是 Adia 里**所有路径的唯一说明**。改代码、加脚本、加工具、排查
 `libreadline.so.8`、`Permission denied`、`No such file or directory` 之前，先读这一页。
 
-配套文档：[`commands.md`](commands.md) 说明命令分派和所有 `oc-*` 命令。
+配套文档：[`commands.md`](commands.md) 说明命令怎么执行、所有路径和 `oc-*` 命令。
+
+---
+
+## 0. 设计原则（不是口号，是下面每条规则的来源）
+
+1. **机制承担复杂度，使用者保持透明。**
+   用户/agent 只说“执行这个命令”，不应该被要求知道它在原生还是 proot、
+   需要哪个 `LD_LIBRARY_PATH`、要不要包一层 `oc-proot`。分类、挂载、库路径
+   都是实现细节。
+
+2. **一个事实来源，不要两套路径。**
+   同一个东西只应有一个权威位置：服务器和终端都在同一个 proot；前缀只有
+   `$PREFIX`；项目只有会话目录。出现“这里也有、那里也有”时，先问它是
+   设计上的副本，还是应该被清掉的死副本。
+
+3. **拒绝会腐烂的名单。**
+   `PROOT_COMMANDS`、`SAFE_NATIVE` 这类“按命令名分类”的表永远会漏；
+   漏一个就是 `libreadline` 或 `Permission denied`。用命名空间边界
+   （整个命令进 proot）代替枚举。
+
+4. **失败必须可自愈、可恢复。**
+   前缀缺文件 → 启动时从 APK 补；离线缓存缺 metadata → 构建自动联网补一次；
+   APK 下载中断 → 用 `.part` 续传；用户取消安装 → 已下载的 APK 还在。
+   不要留下“半完成但标记完成”的状态。
+
+5. **每个结论都要能在真机复现。**
+   `oc-doctor`、`scripts/verify-toolbox.py`、60 秒验收、`adb logcat`。
+   文档写的路径和命令，必须能在设备上跑出同样结果。
+
+6. **成本要可见。**
+   预装只放小体积、高频使用的东西；大而少用的依赖按需下载。包大不是问题，
+   重复下载和重复路径才是。
 
 ---
 
 ## 1. 一句话结论
 
 > Termux 的二进制把 `/data/data/com.termux/files/usr/lib` **编译进了 ELF 的
-> `DT_RUNPATH`**。这个目录只在 proot 沙箱里存在。因此：**任何 Termux ELF 都
-> 必须在 proot 里执行**，唯一例外是本文列出的“叶子工具”（见 §7），它们由
-> `oc-native-env.sh` 用 `linker64` + `LD_LIBRARY_PATH` 显式启动。
+> `DT_RUNPATH`**。这个目录只在 proot 沙箱里存在。因此：**所有命令
+> （服务器、终端、agent、构建）都在同一个 proot 命名空间里执行。**
 
 这不是“路径偶尔找不到”，而是**两套路径空间**：
 
@@ -68,7 +99,7 @@ PY
 | `XDG_RUNTIME_DIR` | `$HOME/.run` | 运行时 |
 | opencode 配置 | `$HOME/.config/opencode` | 用户配置、`AGENTS.md` |
 | Adia 注入配置 | `$HOME/.config/opencode-android` | `opencode.json`、`engine-mode`、skills |
-| engine 模式 | `$HOME/.config/opencode-android/engine-mode` | `auto` / `proot`；`fast` 仅 debug |
+| engine 旧文件 | `$HOME/.config/opencode-android/engine-mode` | 已废弃；存在也不影响，永远 proot |
 | 工作区 | `$HOME/workspace` | 服务器默认项目根 |
 | 共享工具链 | `$HOME/toolchain` | JDK、SDK、Gradle、Maven 种子 |
 | Gradle 用户目录 | `$HOME/toolchain/gradle-home` | `GRADLE_USER_HOME` |
@@ -81,7 +112,7 @@ PY
 | toolbox 完成标记 | `$PREFIX/.opencode-toolbox` | 首次安装完成 |
 | 包清单 | `$HOME/../toolbox/packages.txt` | 已安装版本 |
 | 原生库目录 | `ApplicationInfo.nativeLibraryDir` | **每次升级 APK 都会变** |
-| 原生 git 跳板 | `$HOME/.native-bin/git` → `nativeLibraryDir/libgit.so` | 服务器直接调 git |
+| 旧 git 跳板 | `$HOME/.native-bin/git` → `nativeLibraryDir/libgit.so` | 已废弃；服务器在 proot 内直接用 `$PREFIX/bin/git` |
 | 代理配置 | `$HOME/.oc-etc/hosts`、`resolv.conf` | bind 到 `/etc/` |
 | 共享存储（可选） | `$HOME/sdcard`（root bind） | 只有 root 且挂载成功时 |
 | 真实共享存储 | `/storage/emulated/0` | 不要假设可写 |
@@ -114,7 +145,7 @@ proot 由 `LocalRuntime` 启动，bind 表如下（`CommandResolver.prootScript`
 | `LD_LIBRARY_PATH` | `$PREFIX/lib:$HOME/lib:nativeLibraryDir` |
 | `TMPDIR` | 真实 `$TMPDIR`（所以 `/tmp` 与 `$TMPDIR` 是同一批文件） |
 | `SHELL` | `/system/bin/sh` |
-| `OC_ENGINE` | `proot`（`oc-proot` 用它做幂等，防止嵌套） |
+| `OC_ENGINE` | `proot`（标记当前已经在沙箱里） |
 
 **注意**：`HOME` 在沙箱里仍然是应用私有路径，不是 Termux 的
 `/data/data/com.termux/files/home`。这是有意为之：项目、文件页、会话路径只有一套。
@@ -177,9 +208,9 @@ proot 由 `LocalRuntime` 启动，bind 表如下（`CommandResolver.prootScript`
 1. `LocalToolbox.repairEssentials()`：逐个 `stat` 清单；缺哪个就从 APK 的
    `assets/toolbox/<pkg>.deb` **只补缺失文件**（`mergeTree(..., onlyMissing)`），
    不覆盖用户用 `pkg upgrade` 装的新版本。
-2. `CommandResolver.install()`：重新生成所有 `oc-*` 脚本，写入当前
-   `nativeLibraryDir` 和当前 `$PREFIX`。
-3. 再选择 native / proot 启动服务器。
+2. `CommandResolver.install()`：重新生成 `oc-doctor` / `oc-repair` /
+   `oc-engine` 三个辅助脚本。
+3. 启动**唯一**的 proot 服务器；没有 native / auto / fast 分支。
 
 首次安装（`ToolboxService.installBundled`）：
 
@@ -209,48 +240,21 @@ proot 由 `LocalRuntime` 启动，bind 表如下（`CommandResolver.prootScript`
 
 ## 6. 不变量（改代码前必须保持）
 
-1. **任何 Termux ELF/脚本不得在真实空间直接执行**。`auto` 无条件把整条命令
-   送进 proot；只有 debug 的 `fast` 例外（§7），release 禁用。
+1. **所有命令都在同一个 proot 命名空间执行**：服务器、终端、agent、构建。
+   不存在“原生命令”这条路径，也不存在命令白名单。
 2. `$PREFIX` 必须始终能解析出 §4 的 7 个文件；每次启动都检查。
 3. `bootstrap.txt` 必须包含 §4 的包，先于 `dpkg` 解包。
-4. `nativeLibraryDir` 相关的路径只能在运行时生成，不得写死到脚本或文档示例。
+4. `nativeLibraryDir` 相关的路径只能在运行时生成，不得写死。
 5. 沙箱内的 `PREFIX` 必须是 `/data/data/com.termux/files/usr`；真实前缀只用于
-   Java 解包和 `linker64` 的 `LD_LIBRARY_PATH`。
-6. **proot 必须继承调用者的 cwd**：`oc-proot` 用 `$PWD` 做 `-w`，不能写死
-   `$HOME`。否则 `pwd`/`$PWD/project` 会在 HOME 下找项目，出现“文件明明
-   写了却 build 找不到”的假路径。
-7. `oc-proot` 必须幂等：`OC_ENGINE=proot` 时不得再次调用 proot。
-8. `auto` 不得重新引入 token 白名单或“看起来像 Termux 命令才走 proot”的
-   判断；命令分派必须对调用者透明。
+   Java 解包。
+6. **服务器和 shell 的 cwd 要分清**：服务器进程 cwd 是 `$HOME`；agent 的
+   shell 命令 cwd 是会话目录。不要把 `-w $HOME` 传播成所有命令的 cwd。
+7. **不重新引入** `oc-shell` / `oc-proot` / `oc-native-env.sh`，也不引入
+   `auto` / `fast` / `native` 模式。
+8. 新增系统命令必须在 `$PREFIX/bin` 放包装（先 unset `LD_LIBRARY_PATH`
+   `LD_PRELOAD`，再 exec `/system/bin/*`）。
 
 违反任一条，`libreadline.so.8` / `Permission denied` 就会回来。
-
----
-
-## 7. 原生例外：只有 debug 的 `fast`（记录用）
-
-正式模式 `auto` / `proot` 下，**没有**“叶子工具原生执行”这条路径；所有命令
-统一进 proot。以前为了测速保留过一张叶子工具表：
-
-```
-find grep sed awk diff less cmp
-gzip bzip2 xz zstd
-sort uniq cut tr head tail wc stat du md5sum sha1sum sha256sum base64
-```
-
-这张表现在只用于 **debug 构建的 `fast` 模式**，由 `oc-native-env.sh` 生成：
-
-```sh
-name() { LD_LIBRARY_PATH="$OC_NATIVE_LIB_PATH" /system/bin/linker64 '<前缀里的真实路径>' "$@"; }
-```
-
-- 用 `linker64`（不是直接 exec），绕开 Android 的 `execve` 限制；
-- 显式给 `$PREFIX/lib`，绕开写死的 `DT_RUNPATH`；
-- release 构建里 `ALLOW_FAST=false`，`fast` 不可用。
-
-**为什么不再用于 auto**：任何“按命令名判断”的机制都会漏；漏一个就会出现
-`libreadline` 或 `Permission denied`。让调用者透明地写命令、机制统一进 proot，
-比维护一张永远不完整的白名单更可靠。
 
 ---
 
@@ -259,17 +263,17 @@ name() { LD_LIBRARY_PATH="$OC_NATIVE_LIB_PATH" /system/bin/linker64 '<前缀里�
 在 Adia 终端或 agent 里按顺序执行：
 
 ```sh
-oc-engine status          # auto / proot / fast
+oc-engine status          # proot（唯一模式）
 oc-doctor                 # 路径、7 个必需文件、proot 实测、Java 状态
 oc-repair                 # 缺文件时从 APK 离线补齐
 ```
 
 | 现象 | 原因 | 处理 |
 |---|---|---|
-| `library "libreadline.so.8" not found` | Termux ELF 在 proot 外执行，或前缀缺 `readline` | `oc-repair`；release 已忽略 `fast`；不要直接执行 `$PREFIX/bin/bash` |
-| `Permission denied` / `inaccessible or not found` | 绕过 `oc-shell` 直接 exec 应用私有目录的 ELF/脚本 | 走正常 `auto`；不要从 Java/`ProcessBuilder` 直接 exec |
+| `library "libreadline.so.8" not found` | 前缀缺 `readline`，或绕过 Adia 直接 exec | `oc-repair`；从 Adia 的终端/agent 运行 |
+| `Permission denied` / `inaccessible or not found` | 绕过 App 直接 exec 应用私有文件 | 从 Adia 的终端/agent 运行；不要从 Java/`ProcessBuilder` 直接 exec |
 | `pkg: command not found` | `termux-tools` 缺失 | `oc-repair` |
-| `bash: ...: No such file or directory` | shebang 指向的前缀不存在（在 proot 外） | 正常 `auto` 不会发生；确认没有绕过 `oc-shell` |
+| `bash: ...: No such file or directory` | 前缀损坏 / 绕过 App | `oc-repair`；从 Adia 内运行 |
 | `proot: la caja de herramientas aun se esta instalando` | 首次安装未完成 | 等通知，或看 `files/logs/adia.log` |
 | `java.io.tmpdir doesn't exist` | `$PREFIX/tmp` 不存在 | 构建脚本已改用 `$HOME/.cache/tmp`，不要手建 `$PREFIX/tmp` |
 | Gradle 找不到 SDK | `local.properties` 指错 | 用 `android-build` skill 的 `build.sh`，它会写真实路径 |
@@ -282,7 +286,7 @@ oc-repair                 # 缺文件时从 APK 离线补齐
 在 Adia 的本机终端里依次执行：
 
 ```sh
-oc-engine status        # 期望：auto
+oc-engine status        # 期望：proot
 oc-doctor               # 期望：没有 MISSING，proot-ok/bash-ok/git 版本都出现
 bash -lc 'git --version'
 python3 --version
@@ -297,17 +301,29 @@ pkg install -y jq
 
 ---
 
+## 8.2 预装 vs 按需下载（成本原则）
+
+- **预装**：小体积、高频。当前 release 流水线预热
+  `androidx.core`、`androidx.appcompat`、`material`、`androidx.activity`、
+  `constraintlayout`、`kotlin-stdlib`，同时写入 `files-2.1` 和
+  `metadata-*/descriptors`。这是“离线能开箱构建”的最小集合。
+- **按需**：Compose 全家桶、ONNX/OpenCV、NDK、冷门库、不同版本的 AGP。
+  这些体积大、版本变化快，塞进 APK 只会让 900 MB 继续膨胀。
+- **兜底**：`build.sh` 发现 `--offline` 因缓存 metadata 缺项失败时，自动
+  联网重试一次，只下载缺的部分；下一次继续离线。
+- **升级**：`ToolchainInstaller.VERSION` 变更会让旧安装重新解压 toolchain，
+  避免继续使用缺 metadata 的旧缓存。
+
 ## 9. 加新工具 / 新包的标准流程
 
 1. 在 `scripts/fetch-toolbox.py` 的 `DEFAULT_SET` 加包名（或运行时 `pkg install`）。
 2. 如果它是“启动 shell 必需”的，再加入 `ESSENTIAL_ROOTS` 和
    `LocalToolbox.ESSENTIALS`。
 3. 跑 `python3 scripts/fetch-toolbox.py` 和 `python3 scripts/verify-toolbox.py`。
-4. 如果在 `bin/` 里新增一个**会 exec 子进程**的命令，不要动 `SAFE_NATIVE`；
-   `auto` 会在下次启动扫描到它并送 proot。
-5. 如果是叶子工具，才可以加入 `SAFE_NATIVE`，并在文档里注明“不会 spawn”。
-6. 更新 `docs/commands.md` 的命令表。
-7. 真机验证：`oc-doctor`、`oc-engine status`、`bash -lc 'git --version'`、
+4. 如果在 `bin/` 里新增系统命令，放一个包装脚本：
+   `unset LD_LIBRARY_PATH LD_PRELOAD; PATH=/system/bin exec /system/bin/<cmd> "$@"`。
+5. 更新 `docs/commands.md` 的命令表。
+6. 真机验证：`oc-doctor`、`oc-engine status`、`bash -lc 'git --version'`、
    `python3 --version`、`pkg install -y jq`。
 
 ---
@@ -317,8 +333,8 @@ pkg install -y jq
 | 责任 | 文件 |
 |---|---|
 | 前缀、`.deb` 解包、自愈 | `app/src/main/java/com/opencode/launcher/LocalToolbox.java` |
-| 引擎模式、proot/原生切换、路径挂载 | `app/src/main/java/com/opencode/launcher/LocalRuntime.java` |
-| 命令分派、`oc-*` 脚本生成 | `app/src/main/java/com/opencode/launcher/CommandResolver.java` |
+| 唯一 proot 启动、路径挂载 | `app/src/main/java/com/opencode/launcher/LocalRuntime.java` |
+| `oc-doctor` / `oc-repair` / `oc-engine` 生成 | `app/src/main/java/com/opencode/launcher/CommandResolver.java` |
 | `/doctor`、`/repair` HTTP | `app/src/main/java/com/opencode/launcher/ToolboxServer.java` |
 | 首次安装 / 自测 | `app/src/main/java/com/opencode/launcher/ToolboxService.java` |
 | 离线包清单 | `scripts/fetch-toolbox.py` |

@@ -36,12 +36,6 @@ public final class LocalRuntime {
     private static final String TAG = "OpenCodeLocal";
     private static final Object LOCK = new Object();
     private static final String PREF = "app";
-    private static final String PREF_NATIVE = "native_runtime_enabled";
-    private static final String PREF_RUNTIME_MODE = "runtime_mode";
-    public static final String RUNTIME_AUTO = "auto";
-    public static final String RUNTIME_NATIVE = "native";
-    public static final String RUNTIME_PROOT = "proot";
-    private static final long NATIVE_HEALTH_TIMEOUT_MS = 45_000;
     private static final Object GIT_LOCK = new Object();
     private static final Object SDCARD_LOCK = new Object();
 
@@ -256,16 +250,7 @@ public final class LocalRuntime {
         return null;
     }
 
-    /** Binarios necesarios para ejecutar el servidor musl sin proot. */
-    public static boolean nativeAvailable(Context ctx) {
-        File nd = new File(ctx.getApplicationInfo().nativeLibraryDir);
-        return new File(nd, "libopencode2_bin.so").isFile()
-                && new File(nd, "libld_musl.so").isFile()
-                && new File(nd, "libstdcxx.so").isFile()
-                && new File(nd, "libgcc_s.so").isFile();
-    }
-
-    /** Binarios necesarios para el modo proot clasico. */
+    /** Binarios necesarios para el unico runtime: proot. */
     public static boolean prootAvailable(Context ctx) {
         File nd = new File(ctx.getApplicationInfo().nativeLibraryDir);
         return new File(nd, "libopencode2_bin.so").isFile()
@@ -278,46 +263,21 @@ public final class LocalRuntime {
                 && new File(nd, "libandroid-shmem.so").isFile();
     }
 
+    /** Compatibilidad: solo existe el runtime proot. */
     public static boolean available(Context ctx) {
-        return nativeAvailable(ctx) || prootAvailable(ctx);
+        return prootAvailable(ctx);
     }
 
-    /** Interruptor de seguridad: true usa el servidor nativo; si falla, proot. */
-    public static boolean nativeEnabled(Context ctx) {
-        String mode = runtimeMode(ctx);
-        if (RUNTIME_PROOT.equals(mode)) return false;
-        if (RUNTIME_NATIVE.equals(mode)) return true;
-        return ctx.getApplicationContext().getSharedPreferences(PREF, Context.MODE_PRIVATE)
-                .getBoolean(PREF_NATIVE, true);
-    }
-
-    /** Modo de ejecucion efectivo: preferencia del usuario > valor de compilacion. */
-    public static String runtimeMode(Context ctx) {
-        SharedPreferences sp = ctx.getApplicationContext()
-                .getSharedPreferences(PREF, Context.MODE_PRIVATE);
-        String saved = sp.getString(PREF_RUNTIME_MODE, null);
-        if (RUNTIME_PROOT.equals(saved) || RUNTIME_NATIVE.equals(saved)
-                || RUNTIME_AUTO.equals(saved)) {
-            return saved;
+    private static String readAll(HttpURLConnection c) throws IOException {
+        try (InputStream in = c.getInputStream()) {
+            byte[] buf = new byte[8192];
+            StringBuilder out = new StringBuilder();
+            int n;
+            while ((n = in.read(buf)) > 0 && out.length() < 65536) {
+                out.append(new String(buf, 0, n, StandardCharsets.UTF_8));
+            }
+            return out.toString();
         }
-        String built = BuildConfig.RUNTIME_MODE;
-        if (RUNTIME_PROOT.equals(built) || RUNTIME_NATIVE.equals(built)) return built;
-        return RUNTIME_AUTO;
-    }
-
-    /**
-     * Cambia el modo y reinicia el servidor para que el siguiente arranque lo
-     * use. Solo cambia el modo; no toca el resto de la configuracion.
-     */
-    public static void setRuntimeMode(Context ctx, String mode) {
-        Context app = ctx.getApplicationContext();
-        app.getSharedPreferences(PREF, Context.MODE_PRIVATE)
-                .edit().putString(PREF_RUNTIME_MODE, mode).apply();
-    }
-
-    public static void setNativeEnabled(Context ctx, boolean enabled) {
-        ctx.getApplicationContext().getSharedPreferences(PREF, Context.MODE_PRIVATE)
-                .edit().putBoolean(PREF_NATIVE, enabled).apply();
     }
 
     /** Contraseña Basic estable por instalación para el servidor local. */
@@ -391,24 +351,11 @@ public final class LocalRuntime {
             // La raiz de proyectos debe existir siempre, tambien en modo proot:
             // el selector de sesiones la ofrece como "/" canonico.
             workspaceDir(app);
-            // Autocuracion + envoltorios: se hace antes de elegir motor para
-            // que el terminal y el agente vean el mismo prefijo sano aunque
-            // una instalacion anterior se cortara a medias.
+            // Un solo camino: TODO corre dentro de proot. No hay motor
+            // nativo, ni fallback, ni modos que el usuario pueda romper.
             prepareToolbox(app);
-            if (nativeEnabled(app) && nativeAvailable(app)) {
-                try {
-                    if (startNative(app, port)) {
-                        return true;
-                    }
-                    Log.w(TAG, "el runtime nativo no quedo sano; se usa proot");
-                } catch (Exception e) {
-                    Log.w(TAG, "el runtime nativo fallo; se usa proot: " + e, e);
-                }
-                // Limpia el proceso nativo a medias y su proxy antes de proot.
-                stopCurrent();
-            }
             if (!prootAvailable(app)) {
-                throw new IOException("faltan binarios del runtime local");
+                throw new IOException("faltan binarios del runtime proot");
             }
             boolean ok = startProot(app, port);
             if (ok) Log.i(TAG, "runtime proot iniciado en 127.0.0.1:" + port);
@@ -417,10 +364,8 @@ public final class LocalRuntime {
     }
 
     /**
-     * Deja el prefijo y los envoltorios listos antes de arrancar cualquier
-     * motor. Si falta libreadline (instalacion a medias), se extrae del APK;
-     * despues se regeneran oc-shell/oc-proot/oc-doctor con las rutas de esta
-     * version del APK (nativeLibraryDir cambia en cada actualizacion).
+     * Deja el prefijo y los comandos de diagnostico listos antes de arrancar.
+     * Si falta libreadline (instalacion a medias), se extrae del APK.
      */
     private static void prepareToolbox(Context app) {
         File home = homeDir(app);
@@ -435,15 +380,10 @@ public final class LocalRuntime {
             Log.w(TAG, "no se pudo reparar el prefijo: " + t);
         }
         try {
-            File nd = new File(app.getApplicationInfo().nativeLibraryDir);
-            File tmp = new File(app.getCacheDir(), "tmp");
-            File etc = new File(home, ".oc-etc");
             File binDir = LocalToolbox.installed(app)
                     ? new File(LocalToolbox.prefix(app), "bin")
                     : new File(home, "bin");
-            mkdirs(tmp);
-            mkdirs(etc);
-            CommandResolver.install(home, nd, tmp, etc, binDir);
+            CommandResolver.install(home, binDir);
             // Primer arranque: los envoltorios se generaron en $HOME/bin
             // porque el prefijo aun no existia. Al instalarse el toolbox se
             // generan en $PREFIX/bin; los viejos de $HOME/bin quedan muertos
@@ -470,116 +410,6 @@ public final class LocalRuntime {
         }
     }
 
-    /**
-     * Servidor musl ejecutado directamente sobre Android, con un proxy CONNECT
-     * local para que resuelva DNS mediante netd. Sin proot y sin root.
-     */
-    private static boolean startNative(Context app, int port) throws IOException {
-        File nd = new File(app.getApplicationInfo().nativeLibraryDir);
-        File musl = new File(nd, "libld_musl.so");
-        File bin = runtimeBinary(app);
-        if (bin == null) bin = new File(nd, "libopencode2_bin.so");
-        if (!musl.isFile() || !bin.isFile()) {
-            Log.w(TAG, "faltan libld_musl.so o el binario del servidor");
-            return false;
-        }
-        if (!bin.canExecute()) {
-            // El updater ya lo marca; por si acaso, un binario bajado a files/.
-            //noinspection ResultOfMethodCallIgnored
-            bin.setExecutable(true, true);
-        }
-
-        File home = homeDir(app);
-        File config = new File(home, ".config/opencode");
-        File tmp = new File(app.getCacheDir(), "tmp");
-        File lib = new File(home, "lib");
-        File etc = new File(home, ".oc-etc");
-        mkdirs(home);
-        mkdirs(config);
-        mkdirs(tmp);
-        mkdirs(lib);
-        mkdirs(etc);
-        writeConfig(config);
-        writeGitConfig(home);
-        installTools(app, config);
-        prepareNetworkOverrides(home, etc);
-        copyIfNeeded(new File(nd, "libstdcxx.so"), new File(lib, "libstdc++.so.6"));
-        copyIfNeeded(new File(nd, "libgcc_s.so"), new File(lib, "libgcc_s.so.1"));
-
-        int proxyPort = LocalNetworkProxy.start();
-        // OPENCODE_CONFIG/OPENCODE_CONFIG_CONTENT se ignoran en "serve"
-        // 1.19.x; OPENCODE_CONFIG_DIR si se mezcla (y al final, sin pisar
-        // claves nuestras si el usuario ya tiene las suyas).
-        File nativeConfigDir = new File(home, ".config/opencode-android");
-        mkdirs(nativeConfigDir);
-        // El servidor nativo usa OPENCODE_CONFIG_DIR=opencode-android: la
-        // skill de build debe existir tambien aqui para que se descubra.
-        installSkills(app, nativeConfigDir);
-        File binDir = LocalToolbox.installed(app)
-                ? new File(LocalToolbox.prefix(app), "bin")
-                : new File(home, "bin");
-        // prepareToolbox() ya genero el envoltorio con el nativeLibraryDir de
-        // esta instalacion; aqui solo se usa su ruta.
-        File wrapper = new File(binDir, CommandResolver.SHELL_NAME);
-        Log.i(TAG, "motor de comandos: " + CommandResolver.readMode(home));
-        // Android no deja hacer execve de scripts en files/ (untrusted_app).
-        // El unico sitio ejecutable es nativeLibraryDir, donde va este
-        // trampolin; desde ahi se lanza el envoltorio con /system/bin/sh.
-        File trampoline = new File(nd, "libocshell.so");
-        File agentShell = trampoline.isFile() ? trampoline : new File("/system/bin/sh");
-        if (!trampoline.isFile()) {
-            Log.w(TAG, "falta libocshell.so en nativeLibraryDir; se usa /system/bin/sh");
-        }
-        NativeRuntimeConfig.write(nativeConfigDir, config, agentShell.getAbsolutePath());
-        Map<String, String> env = buildNativeEnv(app, home, tmp, nd, proxyPort);
-        env.put("OPENCODE_CONFIG_DIR", nativeConfigDir.getAbsolutePath());
-        // Las funciones que lanzan los ELF del prefijo con linker64 tambien
-        // valen para bash/sh no interactivos que arranque el agente.
-        File nativeEnv = new File(binDir, CommandResolver.NATIVE_ENV_NAME);
-        env.put("BASH_ENV", nativeEnv.getAbsolutePath());
-        env.put("ENV", nativeEnv.getAbsolutePath());
-        // El shell del agente pasa por el resolvedor: comandos de paquetes o
-        // con rutas de Termux se ejecutan en proot; el resto, nativo.
-        env.put("OPENCODE_WRAPPER", wrapper.getAbsolutePath());
-        env.put("SHELL", agentShell.getAbsolutePath());
-
-        // El proyecto por defecto es el de ejemplo (OPENCODE_TEST_HOME).
-        // No se crea git en workspace/: seria un ancestro comun y todas las
-        // carpetas acabarian siendo el mismo proyecto.
-        File workspace = workspaceDir(app);
-        ensureNativeGit(home, nd);
-
-        List<String> cmd = new ArrayList<>();
-        cmd.add(musl.getAbsolutePath());
-        cmd.add("--library-path");
-        cmd.add(nativeLibraryPath(app, lib, nd));
-        cmd.add(bin.getAbsolutePath());
-        cmd.add("serve");
-        cmd.add("--hostname");
-        cmd.add("127.0.0.1");
-        cmd.add("--port");
-        cmd.add(Integer.toString(port));
-        cmd.add("--print-logs");
-        cmd.add("--log-level");
-        cmd.add("info");
-
-        ProcessBuilder pb = new ProcessBuilder(cmd);
-        pb.directory(home);
-        pb.redirectErrorStream(true);
-        pb.environment().clear();
-        pb.environment().putAll(env);
-        Process p = spawn(pb, bin.getAbsolutePath());
-        Log.i(TAG, "runtime nativo arrancado; proxy=" + proxyPort + " puerto=" + port);
-
-        if (!waitForHealthy(port, p, NATIVE_HEALTH_TIMEOUT_MS, serverPassword(app))) {
-            Log.w(TAG, "runtime nativo sin respuesta en /global/health");
-            stopCurrent();
-            return false;
-        }
-        Log.i(TAG, "runtime nativo listo en 127.0.0.1:" + port);
-        return true;
-    }
-
     private static boolean startProot(Context app, int port) throws IOException {
         File nd = new File(app.getApplicationInfo().nativeLibraryDir);
         File home = homeDir(app);
@@ -597,6 +427,15 @@ public final class LocalRuntime {
         writeConfig(config);
         writeGitConfig(home);
         installTools(app, config);
+        // El servidor tambien corre dentro de proot. Su shell de agente debe
+        // ser el bash del prefijo; no hay oc-shell ni reparto por comando.
+        File nativeConfigDir = new File(home, ".config/opencode-android");
+        mkdirs(nativeConfigDir);
+        installSkills(app, nativeConfigDir);
+        String agentShell = LocalToolbox.installed(app)
+                ? LocalToolbox.SANDBOX_PREFIX + "/bin/bash"
+                : "/system/bin/sh";
+        NativeRuntimeConfig.write(nativeConfigDir, config, agentShell);
         prepareNetworkOverrides(home, etc);
 
         File bin = runtimeBinary(app);
@@ -609,6 +448,9 @@ public final class LocalRuntime {
 
         Map<String, String> env = buildEnv(app, home, tmp, etc, lib, nd, loader, prootTmp);
         env.put("PWD", home.getAbsolutePath());
+        env.put("SHELL", agentShell);
+        env.put("OC_ENGINE", "proot");
+        env.put("OPENCODE_CONFIG_DIR", nativeConfigDir.getAbsolutePath());
         List<String> cmd = prootCmd(app, home, tmp, etc, musl, proot, env,
                 home.getAbsolutePath());
         cmd.add(bin.getAbsolutePath());
@@ -777,141 +619,6 @@ public final class LocalRuntime {
         }
     }
 
-    /**
-     * Deja "git" resoluble por el servidor nativo: un enlace en home/.native-bin
-     * apunta al trampolin libgit.so del directorio nativo. Android no permite
-     * execve de nada dentro de files/, pero si del .so empaquetado en el APK.
-     * El enlace se recrea en cada arranque porque nativeLibraryDir cambia con
-     * las actualizaciones.
-     */
-    private static File ensureNativeGit(File home, File nd) {
-        File tramp = new File(nd, "libgit.so");
-        File dir = new File(home, ".native-bin");
-        File link = new File(dir, "git");
-        if (!tramp.isFile()) {
-            Log.w(TAG, "falta libgit.so en nativeLibraryDir");
-            return null;
-        }
-        try {
-            mkdirs(dir);
-            if (Files.isSymbolicLink(link.toPath()) || link.exists()) {
-                //noinspection ResultOfMethodCallIgnored
-                link.delete();
-            }
-            Os.symlink(tramp.getAbsolutePath(), link.getAbsolutePath());
-            return link;
-        } catch (Exception e) {
-            Log.w(TAG, "no se pudo enlazar git nativo: " + e);
-            return null;
-        }
-    }
-
-    private static String readAll(HttpURLConnection c) throws IOException {
-        try (InputStream in = c.getInputStream()) {
-            byte[] buf = new byte[8192];
-            StringBuilder out = new StringBuilder();
-            int n;
-            while ((n = in.read(buf)) > 0 && out.length() < 65536) {
-                out.append(new String(buf, 0, n, StandardCharsets.UTF_8));
-            }
-            return out.toString();
-        }
-    }
-
-    private static Map<String, String> buildNativeEnv(Context app, File home, File tmp,
-            File nd, int proxyPort) throws IOException {
-        Map<String, String> env = new LinkedHashMap<>();
-        mkdirs(new File(home, ".local/share"));
-        mkdirs(new File(home, ".cache"));
-        mkdirs(new File(home, ".local/state"));
-        mkdirs(new File(home, ".run"));
-        env.put("HOME", home.getAbsolutePath());
-        env.put("TMPDIR", tmp.getAbsolutePath());
-        env.put("XDG_CONFIG_HOME", new File(home, ".config").getAbsolutePath());
-        env.put("XDG_DATA_HOME", new File(home, ".local/share").getAbsolutePath());
-        env.put("XDG_CACHE_HOME", new File(home, ".cache").getAbsolutePath());
-        env.put("XDG_STATE_HOME", new File(home, ".local/state").getAbsolutePath());
-        env.put("XDG_RUNTIME_DIR", new File(home, ".run").getAbsolutePath());
-        env.put("ANDROID_ROOT", "/system");
-        env.put("ANDROID_DATA", "/data");
-        env.put("TERMUX_VERSION", "0.118.0");
-        env.put("SHELL", "/system/bin/sh");
-        env.put("LANG", "C.UTF-8");
-        env.put("LC_ALL", "C.UTF-8");
-        env.put("TERM", "xterm-256color");
-        String appUser = "u0_a" + (android.os.Process.myUid() % 100000);
-        env.put("USER", appUser);
-        env.put("LOGNAME", appUser);
-        env.put("NO_COLOR", "1");
-        env.put("CI", "1");
-        env.put("OPENCODE_DISABLE_AUTOUPDATE", "1");
-        env.put("OPENCODE_RUNTIME", "native");
-        env.put("OPENCODE_NATIVE_LIB_DIR", nd.getAbsolutePath());
-        // v2 exige password; la UI web y la API usan la misma.
-        env.put("OPENCODE_SERVER_PASSWORD", serverPassword(app));
-        env.put("OPENCODE_SERVER_USERNAME", "opencode");
-        env.put("OPENCODE_PASSWORD", serverPassword(app));
-
-        File prefix = LocalToolbox.prefix(app);
-        boolean hasToolbox = LocalToolbox.installed(app);
-        // El sistema primero: los binarios del prefijo no se pueden ejecutar
-        // fuera de proot (Android bloquea execve en el directorio de datos).
-        // Los que solo existen en el prefijo los detecta CommandResolver y
-        // los manda a proot.
-        // .native-bin va primero: el servidor resuelve "git" por PATH y solo
-        // puede ejecutar el trampolin del directorio nativo (SELinux bloquea
-        // execve en files/). El git real del prefijo sigue intacto para proot.
-        String path = new File(home, ".native-bin").getAbsolutePath()
-                + ":/system/bin:/system/xbin:/vendor/bin"
-                + (hasToolbox ? ":" + prefix.getAbsolutePath() + "/bin" : "")
-                + ":" + nd;
-        env.put("PATH", path);
-        // LD_LIBRARY_PATH no se exporta al shell del agente: los binarios
-        // del sistema (dumpsys, pm, am...) cargan libs incompatibles del
-        // prefijo y fallan al enlazar. Las funciones de oc-native-env.sh lo
-        // ponen solo al lanzar un ELF del prefijo con linker64; proot tiene
-        // su propio entorno en oc-proot.
-        if (hasToolbox) {
-            env.put("PREFIX", prefix.getAbsolutePath());
-            env.put("TERMUX_HOME", prefix.getAbsolutePath());
-            env.put("GIT_EXEC_PATH",
-                    new File(prefix, "libexec/git-core").getAbsolutePath());
-            env.put("GIT_CONFIG_NOSYSTEM", "1");
-            env.put("TERMUX_PKG_NO_MIRROR_SELECT", "1");
-            // Los binarios de Termux traen compilada la ruta
-            // /data/data/com.termux/files/usr/etc/tls/cert.pem, que aqui no
-            // existe. Sin esto, curl/wget/git fallan con "error adding trust
-            // anchors" en cuanto la URL es https.
-            File ca = new File(prefix, "etc/tls/cert.pem");
-            if (ca.isFile()) {
-                env.put("CURL_CA_BUNDLE", ca.getAbsolutePath());
-                env.put("SSL_CERT_FILE", ca.getAbsolutePath());
-                env.put("GIT_SSL_CAINFO", ca.getAbsolutePath());
-            }
-            env.put("OPENCODE_TOOLBOX_TOKEN", serverPassword(app));
-            env.put("OPENCODE_TOOLBOX_PORT", Integer.toString(ToolboxServer.PORT));
-        }
-
-        String proxy = "http://127.0.0.1:" + proxyPort;
-        env.put("HTTP_PROXY", proxy);
-        env.put("HTTPS_PROXY", proxy);
-        env.put("ALL_PROXY", proxy);
-        env.put("http_proxy", proxy);
-        env.put("https_proxy", proxy);
-        env.put("all_proxy", proxy);
-        env.put("NO_PROXY", "127.0.0.1,localhost");
-        return env;
-    }
-
-    private static String nativeLibraryPath(Context app, File lib, File nd) {
-        StringBuilder sb = new StringBuilder();
-        if (LocalToolbox.installed(app)) {
-            sb.append(LocalToolbox.prefix(app).getAbsolutePath()).append("/lib:");
-        }
-        sb.append(lib.getAbsolutePath()).append(':').append(nd);
-        return sb.toString();
-    }
-
     private static Process spawn(ProcessBuilder pb, String binPath) throws IOException {
         Process p = pb.start();
         process = p;
@@ -930,68 +637,6 @@ public final class LocalRuntime {
         log.setDaemon(true);
         log.start();
         return p;
-    }
-
-    private static boolean waitForHealthy(int port, Process p, long timeoutMs,
-            String password) {
-        long deadline = System.currentTimeMillis() + timeoutMs;
-        while (System.currentTimeMillis() < deadline) {
-            if (p != null && !p.isAlive()) return false;
-            if (healthy(port, password) || apiHealthy(port, password)) return true;
-            try {
-                Thread.sleep(300);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                return false;
-            }
-        }
-        return false;
-    }
-
-    private static boolean apiHealthy(int port, String password) {
-        HttpURLConnection c = null;
-        try {
-            URL url = new URL("http://127.0.0.1:" + port + "/api/info");
-            c = (HttpURLConnection) url.openConnection();
-            c.setConnectTimeout(800);
-            c.setReadTimeout(1200);
-            c.setUseCaches(false);
-            c.setRequestMethod("GET");
-            String auth = Base64.getEncoder().encodeToString(
-                    ("opencode:" + password).getBytes(StandardCharsets.UTF_8));
-            c.setRequestProperty("Authorization", "Basic " + auth);
-            return c.getResponseCode() == 200;
-        } catch (Exception e) {
-            return false;
-        } finally {
-            if (c != null) c.disconnect();
-        }
-    }
-
-    private static boolean healthy(int port, String password) {
-        HttpURLConnection c = null;
-        try {
-            URL url = new URL("http://127.0.0.1:" + port + "/global/health");
-            c = (HttpURLConnection) url.openConnection();
-            c.setConnectTimeout(800);
-            c.setReadTimeout(1200);
-            c.setUseCaches(false);
-            c.setRequestMethod("GET");
-            if (c.getResponseCode() != 200) return false;
-            try (InputStream in = c.getInputStream()) {
-                byte[] buf = new byte[4096];
-                int n = in.read(buf);
-                if (n <= 0) return false;
-                String body = new String(buf, 0, n, StandardCharsets.UTF_8);
-                return body.contains("\"healthy\":true")
-                        || body.contains("\"healthy\": true");
-            }
-        } catch (Exception e) {
-            Log.d(TAG, "health " + port + ": " + e);
-            return false;
-        } finally {
-            if (c != null) c.disconnect();
-        }
     }
 
     private static Map<String, String> buildEnv(Context app, File home, File tmp, File etc,
@@ -1026,6 +671,7 @@ public final class LocalRuntime {
             env.put("CI", "1");
             env.put("OPENCODE_DISABLE_AUTOUPDATE", "1");
             env.put("OPENCODE_RUNTIME", "proot");
+            env.put("OC_ENGINE", "proot");
             env.put("OPENCODE_NATIVE_LIB_DIR", nd.getAbsolutePath());
             env.put("OPENCODE_SERVER_PASSWORD", serverPassword(app));
             env.put("OPENCODE_SERVER_USERNAME", "opencode");

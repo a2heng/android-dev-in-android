@@ -48,11 +48,10 @@ files at startup. It never deletes project `build/` directories automatically.
 
 ## Workflow
 
-> `auto` already sends `bash <skill-dir>/scripts/build.sh ...` to proot. You can
-> also be explicit: `bash <skill-dir>/scripts/build.sh /path debug`.
-> The scripts start with `#!/data/data/com.termux/files/usr/bin/bash` and must
-> not be executed natively from app-private storage. `oc-proot` preserves the
-> caller's `$PWD`, so relative project paths work. `fast` is debug-only.
+> Everything already runs inside proot. Just run
+> `bash <skill-dir>/scripts/build.sh /path debug`.
+> The scripts start with `#!/data/data/com.termux/files/usr/bin/bash`; the
+> caller's `$PWD` is reliable. Do not wrap it in `oc-proot`.
 
 ### 1. One-time toolchain setup
 
@@ -93,13 +92,11 @@ Tell the user the APK path and the build result. Do not invent a path: use the
 
 ## Do not bypass the script
 
-The agent shell can be **auto** (`oc-shell` picks) or **proot**. `PREFIX` is
-only valid inside proot; in a native shell the real prefix is `$HOME/../usr`.
-The script detects this itself. Never export `/data/data/com.termux/files/usr`
-by hand in a native shell and never rebuild the Gradle command from scratch:
-that path does not exist outside proot and produces the "tmpdir does not exist"
-and "`PREFIX/tmp` cannot be created" failures. `oc-proot` now preserves the
-caller's cwd, so `$PWD/project` is reliable.
+The agent shell is already inside proot. `PREFIX` is
+`/data/data/com.termux/files/usr`; `$PWD` is the project/session directory.
+Never export the Termux prefix by hand and never rebuild the Gradle command
+from scratch: that produces the "tmpdir does not exist" and "`PREFIX/tmp`
+cannot be created" failures. The script resolves everything itself.
 
 If the script fails, fix the **project** and re-run it. Only use
 `OC_USE_WRAPPER=1` or raw Gradle as a last resort, and keep

@@ -21,12 +21,10 @@ There are two kinds of binaries on the phone:
    `$HOME/toolchain`. They live in app-private storage; Android returns
    `Permission denied` (EACCES) if a native process tries to `execve` them.
 
-The shell is **transparent**: `oc-engine status` is `auto` (default) or
-`proot`, and both mean **the whole command runs inside proot**. The agent does
-not classify commands, does not need a list of “safe” commands, and does not
-need to wrap normal commands in `oc-proot`.
-
-Just write the command:
+**Everything already runs inside proot**: the opencode server, this shell, the
+terminal and every child process. There are no modes (`auto`/`fast`/`native`)
+and no command whitelist. The agent only writes the command; no wrapper is
+needed.
 
 ```sh
 pwd
@@ -48,20 +46,14 @@ cd "$HOME/workspace/App" && ./gradlew assembleDebug
 
 Rules:
 
-- `auto` / `proot`: everything enters proot. No command whitelist, no
-  heuristic. This is the supported path.
-- `fast`: **debug builds only**, measurement-only. It runs natively and can
-  reproduce `library "libreadline.so.8" not found`. Release ignores it;
-  `oc-engine fast` is rejected in release.
-- `<command>` is optional. It is useful when you want to make the
-  sandbox boundary explicit, or when you are in a non-Adia native context.
-  It accepts one quoted argument and **preserves the caller's `$PWD`**
-  (fallback `$HOME`).
+- The command cwd is the session directory (`/api/location`), not HOME.
 - Prefer the Termux `adb` at `$PREFIX/bin/adb` (matching aarch64 build) over
-  `$HOME/toolchain/platform-tools/adb`; both are inside proot in normal use.
+  `$HOME/toolchain/platform-tools/adb`.
+- System commands (`am`, `pm`, `dumpsys`, …) have wrappers in `$PREFIX/bin`
+  that unset Termux library variables before execing `/system/bin/*`.
 - Never `chmod +x` and exec an app-private binary from Java/`ProcessBuilder`;
   Android denies it. Use the shell.
-- If a path/library error still appears, run `oc-doctor`, then `oc-repair`.
+- If a path/library error appears, run `oc-doctor`, then `oc-repair`.
   Both are documented in `docs/commands.md` and `docs/paths.md`.
 
 Do not mix their libraries: an Android binary must not inherit Termux
@@ -197,27 +189,22 @@ termux-am start ...
 
 - For UI automation, prefer `adb shell input`, `uiautomator dump`,
   `screencap` (system binaries) rather than Termux GUI packages.
-- `am`/`pm`/`dumpsys` are Android binaries and run outside the Termux prefix;
-  they are already on `PATH`.
+- `am`/`pm`/`dumpsys` are Android binaries; Adia wraps them in `$PREFIX/bin`
+  so they work inside proot without inheriting Termux libraries.
 - If the phone is rooted, `su -c '<cmd>'` works and `$HOME/sdcard` may be the
   shared storage bind mount.
 
 ## Pitfalls
 
-- **`CANNOT LINK EXECUTABLE … library "libX.so" not found`** — the Termux
-  binary was launched outside proot, or the prefix is missing a library
-  (classically `libreadline.so.8`). Run `oc-engine status` (must be `auto` or
-  `proot`), then `oc-doctor` and `oc-repair`. For an explicit command use
-  `<command>`. `auto` runs the whole command in proot; `fast` does
-  not, and release disables `fast` entirely.
+- **`CANNOT LINK EXECUTABLE … library "libX.so" not found`** — the prefix is
+  missing a library (classically `libreadline.so.8`). Run `oc-doctor`, then
+  `oc-repair`. Everything in Adia is already inside proot; do not bypass it.
 - **`Permission denied` / `inaccessible or not found` / `exec format error`** —
-  a Termux/toolchain ELF or script was executed directly from the app data
-  directory by an Android process (often through a shell variable such as
-  `ADB="$HOME/..."`). Move the whole command into `...`; do not
+  an ELF or script was executed directly from app-private storage by an
+  Android process, bypassing Adia. Use the Adia terminal/agent; do not
   `chmod +x` and exec it from a Java `ProcessBuilder`.
 - **`command not found` for a bundled tool** — check `echo $PATH`; the prefix
-  must be first. In a script started by an Android service, source
-  `oc-native-env.sh` or run the whole script through `oc-proot`.
+  must be first. Everything runs in proot, so no extra wrapper is needed.
 - **`/tmp` is not the Android `/tmp`** — it is bound to the app cache. Files
   there are disposable; do not put results there.
 - **Long-running jobs** — background them with `setsid`/`nohup` and write a log

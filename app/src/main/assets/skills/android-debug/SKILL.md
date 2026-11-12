@@ -40,8 +40,7 @@ Variables and compound commands work too; `auto` sends the whole line to proot:
 ADB="$HOME/toolchain/platform-tools/adb"; "$ADB" devices
 ```
 
-`oc-proot '<command>'` is still available when you want to make the sandbox
-boundary explicit, but it is not required.
+No wrapper is required; the whole shell is already inside proot.
 
 If `adb devices` shows a device, continue. If not, ask the user to repeat the
 pairing step; do not guess ports.

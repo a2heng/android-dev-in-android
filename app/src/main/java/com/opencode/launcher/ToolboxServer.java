@@ -175,14 +175,13 @@ public final class ToolboxServer {
             sb.append(",\"installed\":").append(LocalToolbox.installed(ctx));
             sb.append(",\"complete\":").append(LocalToolbox.complete(ctx));
             sb.append(",\"missing\":").append(jsonArray(LocalToolbox.missingEssentials(ctx)));
-            sb.append(",\"engine\":").append(jsonString(
-                    CommandResolver.readMode(LocalRuntime.homeDir(ctx))));
-            sb.append(",\"runtime\":").append(jsonString(LocalRuntime.runtimeMode(ctx)));
+            sb.append(",\"engine\":").append(jsonString("proot"));
+            sb.append(",\"runtime\":").append(jsonString("proot"));
             sb.append(",\"proot_available\":").append(LocalRuntime.prootAvailable(ctx));
-            sb.append(",\"native_available\":").append(LocalRuntime.nativeAvailable(ctx));
+            sb.append(",\"native_available\":false");
             sb.append(",\"sandbox\":").append(jsonString(
                     LocalRuntime.runInSandbox(ctx,
-                            "echo PREFIX=$PREFIX; bash -c 'echo bash-ok' 2>&1; "
+                            "echo PWD=$PWD; echo PREFIX=$PREFIX; bash -c 'echo bash-ok' 2>&1; "
                                     + "git --version 2>&1 | head -1; "
                                     + "python3 --version 2>&1 | head -1; "
                                     + "node --version 2>&1 | head -1", 20000)));

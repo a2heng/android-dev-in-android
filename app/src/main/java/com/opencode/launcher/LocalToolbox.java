@@ -900,6 +900,25 @@ public final class LocalToolbox {
                 + "\n"
                 + "You run inside a Termux-like sandbox owned by the OpenCode app.\n"
                 + "\n"
+                + "## Runtime and paths (read this first)\n"
+                + "Everything already runs inside **proot**: the server, this shell,\n"
+                + "the terminal, builds and every child process. There are no\n"
+                + "auto/fast/native modes and no oc-shell/oc-proot wrappers. Write\n"
+                + "commands directly; do not wrap them in oc-proot.\n"
+                + "\n"
+                + "- The command cwd is the session directory; `pwd` and `$PWD` are\n"
+                + "  reliable (`$HOME/workspace/...`, not HOME).\n"
+                + "- `$HOME` is the app-private home; `$PREFIX` is\n"
+                + "  `/data/data/com.termux/files/usr`.\n"
+                + "- JDK: `$PREFIX/lib/jvm/java-21-openjdk`.\n"
+                + "- Android SDK/Gradle: `$HOME/toolchain/android-sdk` and\n"
+                + "  `$HOME/toolchain/gradle`; shared cache `$HOME/toolchain/gradle-home`.\n"
+                + "- Runtime data: `$HOME/.local/share/opencode`; config:\n"
+                + "  `$HOME/.config/opencode` and `$HOME/.config/opencode-android`.\n"
+                + "- If a required file is missing run `oc-doctor`, then `oc-repair`.\n"
+                + "- `build.sh` retries online once when the offline Gradle cache is\n"
+                + "  incomplete; this is expected and only downloads the missing deps.\n"
+                + "\n"
                 + "## Root\n"
                 + "The phone has root through Magisk. Use:\n"
                 + "\n"
@@ -940,6 +959,16 @@ public final class LocalToolbox {
                 + "    opencode-root cat /sys/class/power_supply/battery/cycle_count\n"
                 + "\n"
                 + "termux-battery-status includes `cycle_count` when root is granted.\n";
+        writeAgentNotesFile(f, body);
+        // El servidor usa OPENCODE_CONFIG_DIR=opencode-android; el AGENTS.md
+        // debe existir tambien ahi para que se cargue al inicio.
+        File nativeDir = new File(ctx.getFilesDir(), "home/.config/opencode-android");
+        if (nativeDir.isDirectory() || nativeDir.mkdirs()) {
+            writeAgentNotesFile(new File(nativeDir, "AGENTS.md"), body);
+        }
+    }
+
+    private static void writeAgentNotesFile(File f, String body) {
         try (java.io.FileWriter w = new java.io.FileWriter(f, false)) {
             w.write(body);
         } catch (IOException ignored) {

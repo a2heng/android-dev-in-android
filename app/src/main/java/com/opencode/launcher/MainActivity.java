@@ -87,6 +87,7 @@ public class MainActivity extends AppCompatActivity {
     /** Repo donde caen los reportes (issues): el proyecto propio. */
     private static final String REPORT_REPO = "a2heng/android-dev-in-android";
 
+    public static final String ACTION_INSTALL_APK = "com.opencode.launcher.INSTALL_APK";
     private static final String HOST = "127.0.0.1";
     private static final int PORT = BuildConfig.SERVER_PORT;
     private static final String URL = "http://" + HOST + ":" + PORT;
@@ -230,8 +231,6 @@ public class MainActivity extends AppCompatActivity {
     private boolean appUpdatePending = false;
     private String appUpdTag = "";
     private String appUpdUrl = "";
-    private long appDownloadId = -1;
-    private BroadcastReceiver appDownloadReceiver = null;
     /** Diagnostico del ultimo chequeo (solo al Registro, nunca aviso). */
     private final StringBuilder updDbg = new StringBuilder();
     private ValueCallback<Uri[]> filePathCallback;
@@ -250,6 +249,7 @@ public class MainActivity extends AppCompatActivity {
         setContentView(R.layout.activity_main);
 
         web = findViewById(R.id.webView);
+        handleLaunchIntent(getIntent());
         boxContent = findViewById(R.id.boxContent);
         cardWeb = findViewById(R.id.cardWeb);
         txtStatus = findViewById(R.id.txtStatus);
@@ -783,11 +783,19 @@ public class MainActivity extends AppCompatActivity {
     protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
         setIntent(intent);
+        handleLaunchIntent(intent);
         PendingShare share = parseShareIntent(intent);
         if (share != null) {
             pendingShare = share;
             showShareDialog();
         }
+    }
+
+    private void handleLaunchIntent(Intent intent) {
+        if (intent == null || !ACTION_INSTALL_APK.equals(intent.getAction())) return;
+        // Se limpia para que rotar/recrear la Activity no reabra el instalador.
+        intent.setAction(null);
+        web.postDelayed(this::installAppUpdate, 700);
     }
 
     @Override
@@ -1024,7 +1032,32 @@ public class MainActivity extends AppCompatActivity {
             openUnknownSourcesSettings();
             return;
         }
+        // Si ya se descargo antes (aunque se cancelara el instalador), no se
+        // vuelve a bajar: se abre el instalador directamente.
+        File apk = appUpdateFile(appUpdTag);
+        if (isValidUpdateApk(apk)) {
+            getSharedPreferences("app", MODE_PRIVATE).edit()
+                    .putString("app_apk", apk.getName()).apply();
+            installAppUpdate();
+            return;
+        }
         downloadAppUpdate(appUpdUrl, appUpdTag);
+    }
+
+    private File appUpdateFile(String tag) {
+        File dir = getExternalFilesDir("updates");
+        return dir == null ? null : new File(dir, "launcher-" + tag + ".apk");
+    }
+
+    private boolean isValidUpdateApk(File apk) {
+        if (apk == null || !apk.isFile() || apk.length() < 1024 * 1024) return false;
+        try {
+            android.content.pm.PackageInfo info = getPackageManager()
+                    .getPackageArchiveInfo(apk.getAbsolutePath(), 0);
+            return info != null && getPackageName().equals(info.packageName);
+        } catch (Exception e) {
+            return false;
+        }
     }
 
     private void startLocalServer() {
@@ -3165,30 +3198,6 @@ public class MainActivity extends AppCompatActivity {
                     }, "su-request").start();
                 });
         addOptionRow(root,
-                T("Motor del servidor", "Server engine"),
-                T("Nativo: el servidor corre sin proot, mas rapido. Los comandos que"
-                        + " necesitan pkg/apt se ejecutan solos dentro de proot."
-                        + " Si el nativo no arranca, vuelve a proot automaticamente.",
-                        "Native: the server runs without proot, faster. Commands that"
-                        + " need pkg/apt run inside proot automatically."
-                        + " If native does not start, it falls back to proot."),
-                !LocalRuntime.nativeAvailable(this) ? T("Solo proot", "proot only")
-                        : LocalRuntime.nativeEnabled(this) ? T("Nativo", "Native")
-                        : T("proot", "proot"),
-                () -> {
-                    if (!LocalRuntime.nativeAvailable(this)) {
-                        snack(T("Esta instalacion no trae el runtime nativo",
-                                "This install has no native runtime"));
-                        return;
-                    }
-                    boolean now = !LocalRuntime.nativeEnabled(this);
-                    LocalRuntime.setNativeEnabled(this, now);
-                    snack(now ? T("Motor nativo: reiniciando", "Native engine: restarting")
-                            : T("Motor proot: reiniciando", "proot engine: restarting"));
-                    refresh.run();
-                    restartServer();
-                });
-        addOptionRow(root,
                 T("Bloqueo de app", "App lock"),
                 T("Pide el desbloqueo del móvil (PIN, patrón, huella) una vez al entrar al chat."
                         + " Apagado por defecto; si tu móvil no tiene bloqueo, te manda a crearlo.",
@@ -3969,66 +3978,23 @@ private void refreshAppUpdateBtn() {
         // Sin boton en el panel: el aviso va en el menu del FAB/notificacion.
     }
 
-    /** Baja el APK del launcher con DownloadManager (avisa solo) e instala. */
+    /**
+     * Baja o reanuda el APK del launcher en AppUpdateService. El .part/.apk
+     * queda en getExternalFilesDir("updates") y sobrevive a cancelar el
+     * instalador o matar la app; un segundo toque no vuelve a descargar.
+     */
     private void downloadAppUpdate(String url, String tag) {
-        new Thread(() -> {
-            try {
-                android.app.DownloadManager dm =
-                        (android.app.DownloadManager) getSystemService(Context.DOWNLOAD_SERVICE);
-                android.app.DownloadManager.Request req =
-                        new android.app.DownloadManager.Request(Uri.parse(url));
-                String name = "launcher-" + tag + ".apk";
-                req.setTitle("OpenCode Android " + tag);
-                req.setDescription(name);
-                req.setMimeType("application/vnd.android.package-archive");
-                req.setNotificationVisibility(
-                        android.app.DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED);
-                java.io.File stale = new java.io.File(getExternalFilesDir("updates"), name);
-                if (stale.exists()) stale.delete();
-                req.setDestinationInExternalFilesDir(this, "updates", name);
-                long id = dm.enqueue(req);
-                appDownloadId = id;
-                getSharedPreferences("app", MODE_PRIVATE).edit()
-                        .putString("app_apk", name).apply();
-                if (appDownloadReceiver == null) {
-                    appDownloadReceiver = new BroadcastReceiver() {
-                        @Override
-                        public void onReceive(Context ctx, Intent intent) {
-                            long rid = intent.getLongExtra(
-                                    android.app.DownloadManager.EXTRA_DOWNLOAD_ID, -1);
-                            if (rid != appDownloadId) return;
-                            // Tambien salta si fallo: instalar solo si acabo bien.
-                            try (android.database.Cursor c = dm.query(
-                                    new android.app.DownloadManager.Query().setFilterById(rid))) {
-                                if (c != null && c.moveToFirst()
-                                        && c.getInt(c.getColumnIndex(
-                                                android.app.DownloadManager.COLUMN_STATUS))
-                                                == android.app.DownloadManager.STATUS_SUCCESSFUL) {
-                                    installAppUpdate();
-                                } else {
-                                    log("Descarga de la app incompleta o fallida. Reintenta.");
-                                    snack(T("Fallo la descarga, reintenta",
-                                            "Download failed, retry"));
-                                }
-                            }
-                        }
-                    };
-                    ContextCompat.registerReceiver(this, appDownloadReceiver,
-                            new IntentFilter(android.app.DownloadManager.ACTION_DOWNLOAD_COMPLETE),
-                            ContextCompat.RECEIVER_NOT_EXPORTED);
-                }
-                runOnUiThread(() -> {
-                    log("Descargando nueva versión " + tag + " ...");
-                    snack(T("Descargando nueva versión...", "Downloading new version..."));
-                });
-            } catch (Exception e) {
-                runOnUiThread(() -> {
-                    log("Descarga de la app falló: " + e.getMessage());
-                    snack(T("Fallo la descarga, mira el registro",
-                            "Download failed, check the log"));
-                });
-            }
-        }).start();
+        File apk = appUpdateFile(tag);
+        if (isValidUpdateApk(apk)) {
+            getSharedPreferences("app", MODE_PRIVATE).edit()
+                    .putString("app_apk", apk.getName()).apply();
+            installAppUpdate();
+            return;
+        }
+        AppUpdateService.start(this, url, tag);
+        log("Descargando/reanudando nueva versión " + tag + " ...");
+        snack(T("Descargando o reanudando actualización...",
+                "Downloading or resuming update..."));
     }
 
     /** Abre el permiso 'instalar apps desconocidas'. En algunos moviles la
@@ -4054,7 +4020,20 @@ private void refreshAppUpdateBtn() {
     private void installAppUpdate() {
         try {
             String name = getSharedPreferences("app", MODE_PRIVATE).getString("app_apk", "");
-            java.io.File apk = new java.io.File(getExternalFilesDir("updates"), name);
+            File dir = getExternalFilesDir("updates");
+            File apk = dir == null ? null : new File(dir, name);
+            if (!isValidUpdateApk(apk)) {
+                // Busca el APK mas reciente si la preferencia se perdio o el
+                // nombre no coincide (p. ej. tras restaurar la app).
+                apk = latestUpdateApk(dir);
+            }
+            if (!isValidUpdateApk(apk)) {
+                snack(T("No hay un APK descargado; pulsa actualizar",
+                        "No downloaded APK; tap update first"));
+                return;
+            }
+            getSharedPreferences("app", MODE_PRIVATE).edit()
+                    .putString("app_apk", apk.getName()).apply();
             Uri uri = androidx.core.content.FileProvider.getUriForFile(
                     this, getPackageName() + ".fileprovider", apk);
             Intent in = new Intent(Intent.ACTION_VIEW);
@@ -4067,6 +4046,17 @@ private void refreshAppUpdateBtn() {
             log("No se pudo abrir el instalador: " + e.getMessage());
             snack(T("Fallo el instalador, mira el registro", "Installer failed, check the log"));
         }
+    }
+
+    private File latestUpdateApk(File dir) {
+        if (dir == null || !dir.isDirectory()) return null;
+        File[] files = dir.listFiles((d, n) -> n.startsWith("launcher-") && n.endsWith(".apk"));
+        if (files == null) return null;
+        File best = null;
+        for (File f : files) {
+            if (best == null || f.lastModified() > best.lastModified()) best = f;
+        }
+        return best;
     }
 
     /** Linea Next: el agente va embebido y la app es solo el chat (sin panel). */

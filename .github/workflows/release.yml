@@ -90,6 +90,11 @@ jobs:
           chmod +x gradlew
           ./gradlew :app:assembleDebug --console=plain --no-daemon
 
+      - name: Warm common Android dependencies (small, high-frequency set)
+        run: |
+          ./gradlew -p scripts/fixtures/common-deps resolveCommon \
+            --console=plain --no-daemon
+
       - name: Build offline toolchain bundle
         run: python3 scripts/make-toolchain.py
 

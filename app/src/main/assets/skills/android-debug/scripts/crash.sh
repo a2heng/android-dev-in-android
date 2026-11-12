@@ -2,16 +2,9 @@
 # Print crash / ANR entries for a package from the crash and main buffers.
 # Usage: crash.sh <package>
 set -eu
-# Run it normally: auto executes the whole command in proot.
-# If called from a native shell (debug fast), it re-execs itself below.
+# Everything runs inside proot; no wrapper/re-exec is needed.
 : "${HOME:?HOME is not set}"
-
-# Fallback for a native/debug shell: re-exec in proot. When already inside
-# proot, OC_ENGINE=proot and oc-proot is idempotent, so this is safe.
-if [ "${OC_ENGINE:-}" != "proot" ]; then
-  P="${PREFIX:-$HOME/../usr}"
-  exec /system/bin/sh "$P/bin/oc-proot" "bash '$0' $*"
-fi
+: "${OC_ENGINE:=proot}"
 PKG="${1:?usage: crash.sh <package>}"
 ADB="${PREFIX:-$HOME/../usr}/bin/adb"
 [ -x "$ADB" ] || ADB="$HOME/toolchain/platform-tools/adb"

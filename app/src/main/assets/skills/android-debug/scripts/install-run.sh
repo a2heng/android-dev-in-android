@@ -2,16 +2,9 @@
 # Install and launch an APK, then print the first log lines for its package.
 # Usage: install-run.sh <apk> <package> [activity]
 set -eu
-# Run it normally: auto executes the whole command in proot.
-# If called from a native shell (debug fast), it re-execs itself below.
+# Everything runs inside proot; no wrapper/re-exec is needed.
 : "${HOME:?HOME is not set}"
-
-# Fallback for a native/debug shell: re-exec in proot. When already inside
-# proot, OC_ENGINE=proot and oc-proot is idempotent, so this is safe.
-if [ "${OC_ENGINE:-}" != "proot" ]; then
-  P="${PREFIX:-$HOME/../usr}"
-  exec /system/bin/sh "$P/bin/oc-proot" "bash '$0' $*"
-fi
+: "${OC_ENGINE:=proot}"
 APK="${1:?usage: install-run.sh <apk> <package> [activity]}"
 PKG="${2:?usage: install-run.sh <apk> <package> [activity]}"
 ACT="${3:-}"

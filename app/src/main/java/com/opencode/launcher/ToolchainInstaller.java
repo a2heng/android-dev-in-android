@@ -26,7 +26,7 @@ import java.util.zip.ZipInputStream;
  */
 public final class ToolchainInstaller {
     private static final String TAG = "OpenCodeToolchain";
-    public static final String VERSION = "6";
+    public static final String VERSION = "7";
     private static final String ASSET = "toolchain/toolchain.zip";
     /** Revision empaquetada de build-tools (ver scripts/make-toolchain.py). */
     private static final String BT_VERSION = "36.0.0";

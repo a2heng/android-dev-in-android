@@ -1,7 +1,12 @@
 # Adia repository rules (read before changing paths or commands)
 
+**Design ethos:** the mechanism owns the complexity; the user/agent stays
+transparent. One runtime (proot), one authoritative path per thing, no
+command-name whitelists, and every failure must be self-healing or resumable.
+If a change makes the user learn an internal detail, it is probably wrong.
+
 1. **Read [`docs/paths.md`](docs/paths.md) and [`docs/commands.md`](docs/commands.md)
-   first.** They are the contract for paths, proot mounts and command routing.
+   first.** They are the contract for paths, proot mounts and command execution.
 2. **Never execute a Termux ELF outside proot.** The only exceptions are the
    leaf tools in `CommandResolver.SAFE_NATIVE` (they are launched with
    `linker64` + `LD_LIBRARY_PATH`). If in doubt, route to proot.
@@ -30,9 +35,11 @@
 
 10. **Before tagging a release:** `python scripts/verify-toolbox.py` must pass;
     release CI runs it too. Do not tag if it fails.
-11. **Update both docs** when changing behavior. The 60-second acceptance test
-    is in `docs/paths.md`; run it on a real device (`oc-engine status`,
-    `oc-doctor`, `bash -lc 'git --version'`, `python3 --version`,
+11. **Update both docs and the skills** when changing behavior. Docs are for
+    humans/repo review; skills + `$HOME/.config/*/AGENTS.md` are what the agent
+    actually loads at startup. The 60-second acceptance test is in
+    `docs/paths.md`; run it on a real device (`oc-engine status` must say
+    `proot`, `oc-doctor`, `bash -lc 'git --version'`, `python3 --version`,
     `pkg install -y jq`).
 
 The Windows toolchain lives at `D:\AndroidDevToolchain`; its README explains

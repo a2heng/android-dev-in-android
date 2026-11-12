@@ -3,8 +3,8 @@ plugins {
 }
 
 // CI passes -PadiaVersionName / -PadiaVersionCode / -PadiaRequireSigning.
-def adiaVersionCode = (findProperty("adiaVersionCode") ?: "6").toInteger()
-def adiaVersionName = findProperty("adiaVersionName") ?: "0.3.6-adia"
+def adiaVersionCode = (findProperty("adiaVersionCode") ?: "7").toInteger()
+def adiaVersionName = findProperty("adiaVersionName") ?: "0.4.0-adia"
 def adiaRequireSigning = findProperty("adiaRequireSigning") == "1"
 
 android {
@@ -20,10 +20,7 @@ android {
         buildConfigField "int", "SERVER_PORT", "4096"
         // Version del binario empaquetado en jniLibs. Actualizarla al cambiarlo.
         buildConfigField "String", "OPENCODE_VERSION", "\"2.2.7\""
-        // Modo de ejecucion por defecto: auto | native | proot.
-        // La rama feat/proot-mobile-ui compila con -PadiaRuntime=proot.
-        def adiaRuntime = (findProperty("adiaRuntime") ?: "auto").toString()
-        buildConfigField "String", "RUNTIME_MODE", "\"${adiaRuntime}\""
+        // Un solo runtime: proot. No hay buildConfigField de modo.
         // UI por defecto: mobile = frontend Compose embebido (:client);
         // web = WebView clasico (solo como respaldo).
         def adiaUi = (findProperty("adiaUi") ?: "mobile").toString()

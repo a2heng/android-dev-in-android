@@ -129,12 +129,37 @@ echo "[android-build] aapt2   : $AAPT2"
 echo "[android-build] gradle  : ${GRADLE_CMD[*]} ${OFFLINE:-online}"
 
 # Project files live on a noexec mount: never run ./gradlew directly.
-"${GRADLE_CMD[@]}" --no-daemon --console=plain $OFFLINE \
-  -I "$INIT" \
-  -Dorg.gradle.jvmargs="-Xmx3g -XX:MaxMetaspaceSize=1g -Dfile.encoding=UTF-8 -Djava.io.tmpdir=$GRADLE_TMP" \
-  -Pandroid.suppressUnsupportedCompileSdk=35 \
-  -Pandroid.aapt2FromMavenOverride="$AAPT2" \
-  "$TASK"
+run_gradle() {
+  "${GRADLE_CMD[@]}" --no-daemon --console=plain $1 \
+    -I "$INIT" \
+    -Dorg.gradle.jvmargs="-Xmx3g -XX:MaxMetaspaceSize=1g -Dfile.encoding=UTF-8 -Djava.io.tmpdir=$GRADLE_TMP" \
+    -Pandroid.suppressUnsupportedCompileSdk=35 \
+    -Pandroid.aapt2FromMavenOverride="$AAPT2" \
+    "$TASK"
+}
+
+BUILD_LOG="$HOME/.cache/adia-build.log"
+mkdir -p "$HOME/.cache" 2>/dev/null || true
+set +e
+run_gradle "$OFFLINE" 2>&1 | tee "$BUILD_LOG"
+RC=${PIPESTATUS[0]}
+set -e
+
+# Si el cache offline esta incompleto (metadata de Gradle desincronizada), se
+# reintenta UNA vez online. Solo se descargan las dependencias que falten; el
+# siguiente build ya puede ser offline. OC_BUILD_ONLINE=0 lo desactiva.
+if [ "$RC" -ne 0 ] && [ -n "$OFFLINE" ] && [ "${OC_BUILD_ONLINE:-auto}" != "0" ] \
+   && grep -Eq "No cached version|Could not download|Could not resolve|offline mode" "$BUILD_LOG"; then
+  echo
+  echo "[android-build] cache offline incompleto: reintentando online (solo lo que falta)..."
+  set +e
+  run_gradle "" 2>&1 | tee "$BUILD_LOG"
+  RC=${PIPESTATUS[0]}
+  set -e
+fi
+if [ "$RC" -ne 0 ]; then
+  exit "$RC"
+fi
 
 # Find the newest APK produced by this task.
 APK="$(find . -path "*/build/outputs/apk/*" -name '*.apk' -type f 2>/dev/null | sort | tail -n 1 || true)"
