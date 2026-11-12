@@ -176,7 +176,9 @@ public final class LocalToolbox {
     /** true si el fichero existe y, si es un enlace, su destino tambien. */
     private static boolean resolves(File file) {
         try {
-            return file.isFile() && file.getCanonicalFile().isFile();
+            if (!file.isFile() || file.length() == 0) return false;
+            File real = file.getCanonicalFile();
+            return real.isFile() && real.length() > 0;
         } catch (IOException e) {
             return false;
         }
@@ -1112,9 +1114,9 @@ public final class LocalToolbox {
             File target = new File(dst, k.getName());
             if (isSymlink(k)) {
                 if (target.exists() || isSymlink(target)) {
-                    // onlyMissing repara enlaces rotos, pero no pisa uno que
-                    // ya resuelve a un fichero real.
-                    if (onlyMissing && target.exists()) continue;
+                    // onlyMissing repara enlaces rotos o vacios, pero no pisa
+                    // uno que ya resuelve a un fichero real.
+                    if (onlyMissing && target.exists() && target.length() > 0) continue;
                     try {
                         Os.remove(target.getAbsolutePath());
                     } catch (ErrnoException ignored) {
@@ -1131,7 +1133,9 @@ public final class LocalToolbox {
                 if (!target.isDirectory() && target.exists() && onlyMissing) continue;
                 mergeTree(k, target, onlyMissing);
             } else {
-                if (target.exists() && onlyMissing) continue;
+                // Un fichero de 0 bytes es una extraccion cortada: se
+                // reemplaza aunque onlyMissing este activo.
+                if (target.exists() && onlyMissing && target.length() > 0) continue;
                 if (target.exists() && !target.delete()) {
                     // Si esta en uso, se deja el antiguo.
                     continue;
