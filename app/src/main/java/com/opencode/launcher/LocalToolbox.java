@@ -435,7 +435,7 @@ public final class LocalToolbox {
      * Instala los paquetes pedidos. Bloqueante: llamarlo desde un hilo.
      * Devuelve la lista de paquetes efectivamente instalados.
      */
-    public static List<String> install(Context ctx, List<String> wanted, Progress p)
+    public static synchronized List<String> install(Context ctx, List<String> wanted, Progress p)
             throws IOException {
         Map<String, Pkg> idx = index(ctx, p);
         List<Pkg> plan = resolve(idx, wanted);
@@ -508,7 +508,8 @@ public final class LocalToolbox {
      * registrados en su base de datos y apt/pkg sean los de siempre.
      * Fase 3: apt-get update, para que apt tenga el indice de paquetes.
      */
-    public static List<String> installBundled(Context ctx, Progress p) throws IOException {
+    public static synchronized List<String> installBundled(Context ctx, Progress p)
+            throws IOException {
         String[] names = ctx.getAssets().list("toolbox");
         if (names == null || names.length == 0) return new ArrayList<>();
         File work = workDir(ctx);
