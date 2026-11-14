@@ -62,7 +62,9 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.foundation.lazy.LazyColumn
@@ -208,6 +210,29 @@ fun ChatScreen(model: AppModel, session: SessionInfo, wide: Boolean = false) {
     val deviceCorner = rememberDeviceCornerRadius()
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
+
+    // 键盘跟随消息列表滚动：往下翻（看更早的消息）收起，往回翻/到底部时再出来。
+    // 注意 Android 的 IME 高度由系统控制，只能 show()/hide()，不能真的逐像素跟随手指。
+    val keyboard = LocalSoftwareKeyboardController.current
+    val density = LocalDensity.current
+    val imeVisible = WindowInsets.ime.getBottom(density) > 0
+    var imeHiddenByScroll by remember { mutableStateOf(false) }
+    LaunchedEffect(listState, imeVisible) {
+        if (imeVisible) imeHiddenByScroll = false
+        var lastIndex = listState.firstVisibleItemIndex
+        snapshotFlow { listState.firstVisibleItemIndex to listState.canScrollBackward }
+            .collect { (index, canScrollBackward) ->
+                val delta = index - lastIndex
+                if (delta > 0 && imeVisible && !imeHiddenByScroll) {
+                    keyboard?.hide()
+                    imeHiddenByScroll = true
+                } else if (imeHiddenByScroll && (delta < 0 || !canScrollBackward)) {
+                    keyboard?.show()
+                    imeHiddenByScroll = false
+                }
+                if (delta != 0) lastIndex = index
+            }
+    }
     val context = LocalContext.current
     val attachments = remember { mutableStateListOf<Attachment>() }
     val imagePicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->

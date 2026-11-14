@@ -42,6 +42,7 @@ re-discovers them.
 | `android-networking` | OkHttp/Retrofit, timeouts, offline behavior |
 | `android-background` | WorkManager, foreground services, Doze |
 | `android-performance` | startup, jank, memory, baseline profiles |
+| `android-ai` | on-device inference: ONNX Runtime, TFLite, llama.cpp/GGUF, model storage, CPU/NPU limits (MNN status) |
 | `termux` | bundled Termux userland: bash/git/python/node/clang, pkg/apt, adb, path traps |
 
 ## Release

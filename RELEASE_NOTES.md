@@ -1,41 +1,53 @@
-# Adia v0.4.1
+# Adia v0.4.2
 
 本文件只写当前版本相对上一版的改动；CI 直接把本文件作为 GitHub Release 正文，历史版本看 git tag 对应的提交。
 
-## 本版：客户端与 OpenCode 安卓 UI 对齐
+## 本版：本地 AI（`android-ai` skill）
 
-### 运行时
+### 内置 AI 运行时
 
-- 内置 opencode 升到 **2.3.0**（Linux arm64 musl）。此前构建配置写 2.2.7、CI 却仍拉 2.2.6；现在 `build.gradle`、CI/release 工作流、`fetch-opencode.py` 默认值和文档统一为 2.3.0。
+- toolbox 新增 4 个 Termux 包（全部为 bionic 构建，**不要**换成 PyPI 的 manylinux 轮子）：
+  `python-numpy 2.5.4`、`python-onnxruntime 1.31.1`、`python-tflite-runtime 2.21.0`、`llama-cpp 1.0.0`。
+- APK 约 +26.6 MB `.deb`，首次安装后约 +119 MB（`$PREFIX`）。
+- ONNX Runtime 的 Termux 构建带 **CPU / XNNPACK / NNAPI** provider；
+  TFLite 只有 CPU（没有 GPU/NNAPI delegate `.so`）；
+  llama.cpp 提供 `llama-cli` / `llama-server` / `llama-quantize` / `llama-bench`，CPU 走 ARM NEON。
+- 模型统一放 `~/models/{onnx,tflite,gguf}/`，不要放 `cache/` 或 `/tmp`。
 
-### 默认模型
+### 新 skill：`android-ai`
 
-- 设置页的选择页原来放在滚动 `Column` 里，被无限高度压成 0，表现为「点默认模型没反应」；现在放在 `Box` 里。
-- 选择结果照旧通过 `POST /api/session/{id}/model` 落到服务端会话，新建会话立即生效。
+四个库**分开写**，各自的 API、模型格式和限制不混在一起：
 
-### 登录与连接
+| 文件 | 内容 |
+| --- | --- |
+| `SKILL.md` | 引擎选择、模型目录、CPU 线程/内存/量化规则、常见错误、NPU 现状 |
+| `references/onnxruntime.md` | `InferenceSession`、provider 顺序、NNAPI 回退、线程数 |
+| `references/tflite.md` | `tflite_runtime.interpreter` 的完整调用序列、量化输入 |
+| `references/llama-cpp.md` | GGUF 大小预算、`llama-cli` / `llama-server`、OpenAI 兼容接口 |
+| `references/mnn.md` | 为什么暂不内置、官方 Android 包大小、JNI/CLI 接入条件 |
 
-- **保存连接**：只有真正连通（探测成功）的地址才保存；地址栏右侧下拉可选、可删除、自动回填密码。
-- **取消连接**：连接中按钮变成「取消连接」；改地址/密码或点取消会立即打断，停在登录页。
-- **不再空转**：第一次连不上就停在登录页，只有已经连上过再掉线才退避重连。
-- **后台保活**：连上后 `ConnectionService` 前台通知保持 SSE；回到前台补一次 `ensureKeepAlive()`，并在 Compose 宿主里补申请通知权限（Android 13+）。
+自检（proot 内）：
 
-### 路径
+```sh
+bash ~/.config/opencode/skills/android-ai/scripts/check-ai.sh
+python ~/.config/opencode/skills/android-ai/scripts/onnx_smoke.py
+```
 
-- 服务端路径统一 `/`（`normPath`），Windows 的 `D:\a\b` 不再让「上一级」原地踏步。
-- **不以 `/` 开头的相对路径**按「会话目录 → HOME → 文件页根」补全（`resolvePath` / `resolveFileRef`），不再被服务端按自己的工作目录解析成 404 或错文件。
-- 文件页、新建会话、`@` 文件引用里的「上一级」能正确处理 `/` 和 Windows 盘符根（`C:` → `C:/`）。
-- **Adia 专属保持**：文件页仍以应用 HOME 为根（不提供 `/`、`/tmp/opencode` 胶囊），路径标签显示 `~`；本机终端仍是宿主注入的 Termux/proot shell。
+`onnx_smoke.py` 用 onnxruntime 包自带的 `mul_1.onnx`，实测输出
+`[[1,4],[9,16],[25,36]]`，不需要下载模型。
 
-### Git 与终端
+### 聊天：键盘跟随滚动
 
-- Git「上一次提交」改用 `HEAD~1 → HEAD`；工作区干净时打开 Git 自动切过去。
-- 远端 PTY 先让服务端用自己的默认 shell（Windows 上是 Git Bash / cmd.exe），旧服务端再退回 `bash`；Adia 本机终端不受影响。
+- 往下翻看更早的消息时，输入框的软键盘跟着收起；往回翻或回到底部时再弹出。
+- 只对已经聚焦的输入框生效，不会在看历史时强行弹出键盘；`imeHiddenByScroll`
+  只在「是我们收起的」情况下才重新 `show()`。
+- Android 的 IME 高度和动画由系统控制，只能 `show()`/`hide()`，**不能逐像素跟手**；
+  要真正跟手需要自绘输入法（不做）。
 
-### 同步回 OpenCode 安卓 UI
+### MNN（未内置）
 
-- 会话列表时间视图改用 `groupedRest`，修复同一会话出现两次（数量 1、列表两行）。
-- 版本比较容忍 `-rc` / `-beta` 后缀。
-- 相对路径补全、文件页「上一级」根处理、`ensureKeepAlive()` 同步过去。
-
-清单与两边允许的差异见 [`docs/mobile-integration.md`](docs/mobile-integration.md)。
+- 官方 `3.6.2` 的 Android 预编译包 `mnn_..._android_armv7_armv8_cpu_opencl_vulkan.zip`
+  只有 **6.4 MiB**（含两个 ABI、CPU/OpenCL/Vulkan 三个后端），arm64 子集更小。
+- 但它不是 Termux 包：要走 JNI/NDK 或交叉编译 CLI，模型还要在 PC 上转成 `.mnn`；
+  NPU 只能通过厂商驱动/NNAPI，不能承诺。
+- 结论：先把 ONNX/TFLite/llama.cpp 用起来，MNN 在真机跑通并证明比现有路径更快后再内置。

@@ -22,9 +22,9 @@
   `BUILD SUCCESSFUL in 26s`（增量），产物安装后正常启动。
 - 使用免费模型 `opencode/deepseek-v4.1-flash-free`，让手机内的 opencode 自己生成
   并构建 `AgentHello`，安装后显示 “Hello from opencode on-device”。
-- 内置技能 22 个：构建、调试、项目、UI、测试、发布、安装、性能、NDK、依赖、
+- 内置技能 23 个：构建、调试、项目、UI、测试、发布、安装、性能、NDK、依赖、
   共享库缓存、国际化、安全、Gradle、发布、架构、网络、数据库、后台、16 KB、
-  Termux 工具链、skill-installer。
+  Termux 工具链、**本地 AI（ONNX/TFLite/llama.cpp/MNN）**、skill-installer。
 
 ## 路径与命令（先读这两篇）
 
@@ -124,8 +124,8 @@ Adia 内置自己的 Compose 前端副本（`client/`），**不再使用 git su
   `/data/app/.../lib/arm64` 约 263 MiB（其中 `libopencode2_bin.so` 单项 242 MiB）
   ≈ **1.12 GiB**。这是「应用大小」，和用户数据（`$PREFIX`、`$HOME`）分开统计。
 - **首次启动展开的工作副本**：`toolchain.zip`（约 326 MB）和 toolbox 的 `.deb`
-  （约 279 MB）本身已经是压缩格式，再压收益很小；展开后 `~/toolchain` 约
-  443 MB、`files/usr` 约 1.1 GB。APK 里没有第二份 zip 副本，
+  （约 290 MB，含 ONNX/TFLite/llama.cpp）本身已经是压缩格式，再压收益很小；
+  展开后 `~/toolchain` 约 443 MB、`files/usr` 约 1.25 GB。APK 里没有第二份 zip 副本，
   `ToolchainInstaller` 直接解到 `toolchain.tmp`，成功后改名并写 `.installed`。
 - **应用内更新的 APK 落在哪**：
   - Compose 设置页「检查更新」：`/data/data/com.a2heng.adia/cache/update/adia-<tag>.apk`

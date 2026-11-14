@@ -101,6 +101,7 @@ PY
 | Adia 注入配置 | `$HOME/.config/opencode-android` | `opencode.json`、`engine-mode`、skills |
 | engine 旧文件 | `$HOME/.config/opencode-android/engine-mode` | 已废弃；存在也不影响，永远 proot |
 | 工作区 | `$HOME/workspace` | 服务器默认项目根 |
+| 本地模型 | `$HOME/models/{onnx,tflite,gguf}` | 端侧推理权重；不要放 `cache/` 或 `/tmp` |
 | 共享工具链 | `$HOME/toolchain` | JDK、SDK、Gradle、Maven 种子 |
 | Gradle 用户目录 | `$HOME/toolchain/gradle-home` | `GRADLE_USER_HOME` |
 | Maven 本地库 | `$HOME/toolchain/m2` | 可选离线缓存 |

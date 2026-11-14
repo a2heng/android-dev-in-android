@@ -18,7 +18,11 @@ MIRRORS = [
     "https://packages.termux.dev/apt/termux-main",
 ]
 DEFAULT_SET = [
-    "bash", "coreutils", "curl", "git", "python", "python-pip", "nodejs",
+    "bash", "coreutils", "curl", "git", "python", "python-pip",
+    # On-device AI (CPU-first). Each engine is documented in the `android-ai`
+    # skill; do not swap these for pip wheels (manylinux/glibc won't run).
+    "python-numpy", "python-onnxruntime", "python-tflite-runtime", "llama-cpp",
+    "nodejs",
     "openssh", "make", "cmake", "ninja", "pkg-config", "binutils", "clang",
     "wget", "util-linux", "openjdk-21",
     # 16 KB-aligned optional build tools. aapt2 is already bundled separately;

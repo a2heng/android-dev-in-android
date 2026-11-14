@@ -43,6 +43,7 @@ project(":client").projectDir = file("client")
 | 文件页上一级 | `FilesScreen.kt` / `NewSessionDialog.kt` / `FileMentionDialog.kt` | 根路径（`/`、`C:/`）不再往上；相对 `fsDir` 先补到基准根再切父目录 |
 | Git「上一次提交」 | `AppModel.loadGit` | committed 模式传 `base=HEAD~1`；工作区干净时自动切过去 |
 | 会话列表去重 | `SessionsScreen.kt` | 时间视图必须用 `groupedRest`（`recent` 已从 `rest` 取走前 3 条），否则同一会话出现两次 |
+| 键盘跟随滚动 | `ChatScreen.kt` | 往下翻（看更早）`hide()` IME，往回/到底 `show()`；只对已聚焦输入框生效，系统 IME 不能逐像素跟手 |
 | PTY | `AppModel.createPty` | 远端终端先让服务端用自己的默认 shell（Windows 上是 Git Bash/cmd），旧服务端再退回 `bash`；**Adia 本机终端不走这里**，由宿主注入 Termux/proot shell |
 
 
