@@ -131,7 +131,7 @@ class OcClient(rawBase: String, private val password: String) {
 
     /** 服务端的根目录（/api/location 的 directory），用来显示 ~ 相对路径。 */
     suspend fun locationRoot(): String =
-        (get("/api/location") as? JsonObject)?.str("directory") ?: ""
+        normPath((get("/api/location") as? JsonObject)?.str("directory") ?: "")
 
     /** 真正在跑的会话：/api/session/active 返回 { data: { ses_x: {type:"running"} } } */
     suspend fun activeSessionIds(): Set<String> {
@@ -262,9 +262,12 @@ class OcClient(rawBase: String, private val password: String) {
     suspend fun vcsBase(directory: String): JsonObject? =
         unwrapObject(get("/api/vcs/base" + locationQuery(directory)))
 
-    suspend fun vcsDiff(directory: String, mode: String = "working"): List<VcsDiffFile> {
-        val base = locationQuery(directory)
-        val q = if (base.contains("?")) "$base&mode=${urlEncode(mode)}" else "?mode=${urlEncode(mode)}"
+    suspend fun vcsDiff(directory: String, mode: String = "working", base: String? = null): List<VcsDiffFile> {
+        val params = buildList {
+            add("mode=" + urlEncode(mode))
+            if (!base.isNullOrBlank()) add("base=" + urlEncode(base))
+        }.joinToString("&")
+        val q = locationQuery(directory).let { if (it.isBlank()) "?$params" else "$it&$params" }
         return unwrapArray(get("/api/vcs/diff$q")).mapNotNull { item ->
             (item as? JsonObject)?.let { parseVcsDiffFile(it) }
         }
@@ -439,10 +442,10 @@ class OcClient(rawBase: String, private val password: String) {
     suspend fun listDir(dir: String?): Pair<String, List<FsEntry>> {
         val q = if (dir.isNullOrBlank()) "" else "?location%5Bdirectory%5D=" + urlEncode(dir)
         val o = get("/api/fs/list$q") as? JsonObject ?: JsonObject(emptyMap())
-        val location = o.obj("location")?.str("directory") ?: dir.orEmpty()
+        val location = normPath(o.obj("location")?.str("directory") ?: dir.orEmpty())
         val entries = o.arr("data").mapNotNull { e ->
             val ob = e as? JsonObject ?: return@mapNotNull null
-            FsEntry(ob.str("path") ?: return@mapNotNull null, ob.str("type") ?: "file")
+            FsEntry(normPath(ob.str("path") ?: return@mapNotNull null), ob.str("type") ?: "file")
         }
         return location to entries
     }
@@ -474,9 +477,16 @@ class OcClient(rawBase: String, private val password: String) {
     suspend fun ptyList(): List<PtyInfo> =
         unwrapArray(get("/api/pty")).mapNotNull { (it as? JsonObject)?.let(::parsePty) }
 
-    suspend fun ptyCreate(command: String = "bash", cwd: String? = null): PtyInfo? {
+    /**
+     * 创建 PTY。`command = null` 时不传 command，让服务端用**自己的默认 shell**。
+     *
+     * 不要写死 "bash"：Windows 服务端的 PATH 里通常没有 bash，
+     * bun-pty 会直接 500；而服务端默认 shell 会解析成 Git Bash / cmd.exe。
+     * Adia 本机终端不走这里（宿主注入 Termux shell），这里只服务远端 PTY。
+     */
+    suspend fun ptyCreate(command: String? = null, cwd: String? = null): PtyInfo? {
         val body = buildJsonObject {
-            put("command", JsonPrimitive(command))
+            if (!command.isNullOrBlank()) put("command", JsonPrimitive(command))
             put("title", JsonPrimitive("手机终端"))
             if (!cwd.isNullOrBlank()) put("cwd", JsonPrimitive(cwd))
         }

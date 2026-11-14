@@ -77,7 +77,7 @@ jobs:
           printf '%s' "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/signing/release.jks"
 
       - name: Fetch opencode runtime
-        run: python3 scripts/fetch-opencode.py --version 2.2.6
+        run: python3 scripts/fetch-opencode.py --version 2.2.7
 
       - name: Fetch offline Termux toolbox
         run: python3 scripts/fetch-toolbox.py

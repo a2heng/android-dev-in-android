@@ -37,6 +37,7 @@ public class MobileFrontendActivity extends AppCompatActivity {
     private boolean mounted;
     private boolean starting;
     private TextView status;
+    private androidx.activity.result.ActivityResultLauncher<String> notifPermLauncher;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -62,7 +63,27 @@ public class MobileFrontendActivity extends AppCompatActivity {
             c.setAppearanceLightNavigationBars(!dark);
         }
         setContentView(buildLoading());
+        // 连接保活是前台服务：Android 13+ 没有通知权限时通知栏不显示，
+        // 部分 ROM 会更快回收进程。登录页的独立客户端会主动申请，这里补齐。
+        notifPermLauncher = registerForActivityResult(
+                new androidx.activity.result.contract.ActivityResultContracts.RequestPermission(),
+                granted -> { });
+        requestNotifPermission();
         startServerAndShow();
+    }
+
+    private void requestNotifPermission() {
+        if (android.os.Build.VERSION.SDK_INT < 33) return;
+        if (androidx.core.content.ContextCompat.checkSelfPermission(this,
+                android.Manifest.permission.POST_NOTIFICATIONS)
+                == android.content.pm.PackageManager.PERMISSION_GRANTED) return;
+        android.content.SharedPreferences sp = getSharedPreferences("app", MODE_PRIVATE);
+        if (sp.getBoolean("notif_perm_asked", false)) return;
+        sp.edit().putBoolean("notif_perm_asked", true).apply();
+        try {
+            notifPermLauncher.launch(android.Manifest.permission.POST_NOTIFICATIONS);
+        } catch (Exception ignored) {
+        }
     }
 
     private LinearLayout buildLoading() {

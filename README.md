@@ -9,6 +9,11 @@
 - 目标：把「opencode + JDK + Android SDK + Gradle + 调试工具」全部塞进一个可离线
   使用的 APK，不依赖电脑、不依赖 Termux 外部应用、首次启动不下载工具链。
 
+## 兄弟项目
+
+- [OpenCode 安卓 UI](https://github.com/a2heng/opencode-android-ui) — 局域网客户端：直连电脑上的 opencode，界面代码与 Adia 同源。
+- **Adia**（本项目）— 本机客户端：opencode 后端、Termux/proot 运行时和 Compose 界面都在同一个 APK 里，离线可用。
+
 ## 已验证（2026-11-09）
 
 - 设备：OPPO PKB110，Android 17，arm64，4 KB 页大小，158 GB 可用存储。
@@ -82,6 +87,11 @@ Adia 内置自己的 Compose 前端副本（`client/`），**不再使用 git su
 - 独立的局域网客户端已经改名为 **OpenCode 安卓 UI**：
   [`a2heng/opencode-android-ui`](https://github.com/a2heng/opencode-android-ui)。
 - 两边只是共享过一套界面代码，之后各自演进；改 Adia 不会再碰 mobile 仓库，反之亦然。
+- **2026-11-14 已做一次双向同步**：默认模型选择页、保存连接/取消连接、后台保活、
+  `normPath`/相对路径补全、「上一级」根处理、Git `HEAD~1` 都已对齐；会话列表去重
+  `groupedRest` 修复从 Adia 回灌给 UI。**Adia 独有的 Termux/proot 本机终端和
+  Android/Linux 路径规则保持不变**，同步清单见
+  [`docs/mobile-integration.md`](docs/mobile-integration.md)。
 - **服务端进程只有 proot**：opencode 服务器、终端、agent 和构建都在同一个
   proot 命名空间；没有 native/auto/fast 模式，也没有 `-PadiaRuntime` 开关。
 
@@ -106,14 +116,31 @@ Adia 内置自己的 Compose 前端副本（`client/`），**不再使用 git su
 
 ## 存储与清理
 
-- APK 约 742 MB，其中 `toolchain.zip`（326 MB）和 toolbox 的 `.deb`（279 MB）
-  本身已经是压缩格式，再压收益很小。首次启动会把它们展开成工作副本：
-  `~/toolchain` 约 443 MB（清理掉误建的 `.git` 后）、`files/usr` 约 1.1 GB。
-  APK 里没有第二份 zip 副本；`ToolchainInstaller` 直接解到 `toolchain.tmp`，
-  成功后改名并写 `.installed`，不会重复解压。
+- **安装包本体的去向**：Release APK 以 v0.4.0 为例是 **922 MB（879 MiB）**。
+  安装时 Android 会把它复制到 `/data/app/~~<随机>/com.a2heng.adia-<随机>/base.apk`
+  （只读，只有卸载才会消失）；你下载的那份仍在浏览器的下载目录或下面的更新目录里，
+  **不会**因为安装成功自动删除。
+- **为什么装完看起来是 1.2 GB**：APK 879 MiB + `extractNativeLibs=true` 解出的
+  `/data/app/.../lib/arm64` 约 263 MiB（其中 `libopencode2_bin.so` 单项 242 MiB）
+  ≈ **1.12 GiB**。这是「应用大小」，和用户数据（`$PREFIX`、`$HOME`）分开统计。
+- **首次启动展开的工作副本**：`toolchain.zip`（约 326 MB）和 toolbox 的 `.deb`
+  （约 279 MB）本身已经是压缩格式，再压收益很小；展开后 `~/toolchain` 约
+  443 MB、`files/usr` 约 1.1 GB。APK 里没有第二份 zip 副本，
+  `ToolchainInstaller` 直接解到 `toolchain.tmp`，成功后改名并写 `.installed`。
+- **应用内更新的 APK 落在哪**：
+  - Compose 设置页「检查更新」：`/data/data/com.a2heng.adia/cache/update/adia-<tag>.apk`
+    （应用缓存，系统「清除缓存」或重装会清掉）。
+  - 旧的通知式更新（`AppUpdateService`）：
+    `/sdcard/Android/data/com.a2heng.adia/files/updates/launcher-<tag>.apk`
+    和 `…apk.part`。**装完不会自动删**，确认安装成功后可以手动删掉回收空间。
+- **自查命令**（Adia 本机终端里）：
+  ```sh
+  du -sh "$PREFIX" "$HOME" "$HOME/toolchain" "$HOME/workspace"
+  ls -lh /sdcard/Android/data/com.a2heng.adia/files/updates/ 2>/dev/null
+  ```
 - **Gradle 共享缓存**：`~/toolchain/gradle-home` 就是 `GRADLE_USER_HOME`，
   所有项目共用；不会用到 `~/.gradle`。`~/toolchain/m2` 只在运行
-  `export-gradle.sh` / `fetch-maven.sh` 后才会有内容，`~/.m2` 也只是
+  `export-gradle.sh` / `fetch-maven.sh` 后才有内容，`~/.m2` 也只是
   `link-m2.sh` 的可选软链。
 - **主要膨胀来源**是每个项目的 `build/` 和 `.gradle/`，以及旧的 Gradle
   daemon 日志。用内置脚本清理：
@@ -127,6 +154,20 @@ Adia 内置自己的 Compose 前端副本（`client/`），**不再使用 git su
   不带参数只删临时文件；`--builds` 再删 `~/workspace/*/build` 和 `.gradle`；
   `--all` 连共享依赖缓存一起删（下次构建重新下载）。Adia 启动时也会自动
   清理旧的临时文件、Gradle daemon 日志和已下载的 `.deb`。
+
+## 为什么命令和终端都显示 `/data/data/com.termux/files/usr`
+
+- Termux 的 `bash`/`git`/`python` 在编译时把
+  `/data/data/com.termux/files/usr/lib` 写进了 ELF 的 `DT_RUNPATH`，这个字符串
+  改不了；直接在 Android 真实空间执行它们会找不到 `libreadline.so.8`。
+- Adia 不安装、也不使用真正的 Termux 应用。它在 proot 里把真实前缀
+  `/data/data/com.a2heng.adia/files/usr` **bind 到**
+  `/data/data/com.termux/files/usr`，再把 `PREFIX`/`TERMUX_HOME` 设成后者。
+  所以在终端、`ps`、脚本里看到的 `com.termux` 路径只是**沙箱视图**，
+  磁盘上真实占用仍在 `com.a2heng.adia/files/usr`；卸载 Adia 会一起消失。
+- 这也是所有命令（服务器、终端、agent、构建）都走 proot 的原因，完整 bind 表见
+  [`docs/paths.md`](docs/paths.md)。**不要**去改 `com.termux` 的真机目录，
+  也不需要单独安装 Termux。
 
 ## 目录结构
 

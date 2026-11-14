@@ -15,6 +15,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.channels.Channel
@@ -71,6 +72,74 @@ class AppModel(app: Application) : AndroidViewModel(app) {
         private set
     var homeDir by mutableStateOf("")
         private set
+
+    /**
+     * 连接过的服务器（地址 + 密码）。只有真正 ping 通过才写入，
+     * 登录页可以直接下拉选择并自动回填。
+     */
+    var savedConnections by mutableStateOf(loadSavedConnections())
+        private set
+
+    private fun loadSavedConnections(): List<SavedConnection> {
+        val raw = prefs.getString("saved_connections", "").orEmpty()
+        if (raw.isBlank()) {
+            // 老版本只存了一个 url/password，升级后先把它当成第一条；
+            // 用户把列表删空后要尊重空列表，不能再从 url 复活。
+            if (prefs.getBoolean("saved_connections_v1", false)) return emptyList()
+            val legacyUrl = prefs.getString("url", "").orEmpty()
+            if (legacyUrl.isBlank()) return emptyList()
+            return listOf(
+                SavedConnection(
+                    OcClient.normalize(legacyUrl),
+                    prefs.getString("password", "").orEmpty(),
+                ),
+            )
+        }
+        return raw.lineSequence().mapNotNull { line ->
+            val parts = line.split('|', limit = 2)
+            if (parts.size != 2) return@mapNotNull null
+            runCatching {
+                val url = String(android.util.Base64.decode(parts[0], android.util.Base64.NO_WRAP))
+                val pwd = String(android.util.Base64.decode(parts[1], android.util.Base64.NO_WRAP))
+                if (url.isBlank()) null else SavedConnection(url, pwd)
+            }.getOrNull()
+        }.toList()
+    }
+
+    private fun persistSavedConnections() {
+        val enc = { s: String ->
+            android.util.Base64.encodeToString(s.toByteArray(), android.util.Base64.NO_WRAP)
+        }
+        prefs.edit()
+            .putString(
+                "saved_connections",
+                savedConnections.joinToString("\n") { enc(it.url) + "|" + enc(it.password) },
+            )
+            .putBoolean("saved_connections_v1", true)
+            .apply()
+    }
+
+    /** 连接成功后调用：同地址只保留一条，最近使用的排在最前。 */
+    fun rememberConnection(url: String, pwd: String) {
+        val normalized = OcClient.normalize(url)
+        if (normalized.isBlank()) return
+        val next = listOf(SavedConnection(normalized, pwd)) +
+            savedConnections.filterNot { it.url == normalized }
+        savedConnections = next.take(12)
+        persistSavedConnections()
+    }
+
+    fun forgetConnection(url: String) {
+        savedConnections = savedConnections.filterNot { it.url == url }
+        persistSavedConnections()
+    }
+
+    /** 输入地址时按规范化后的地址匹配已保存的连接，用来回填密码。 */
+    fun savedConnectionFor(input: String): SavedConnection? {
+        if (input.isBlank()) return null
+        val normalized = runCatching { OcClient.normalize(input) }.getOrNull() ?: return null
+        return savedConnections.firstOrNull { it.url == normalized }
+    }
 
     /**
      * 运行中发送方式。opencode 的 delivery 只有 steer / queue，且**默认是 steer**
@@ -385,7 +454,7 @@ class AppModel(app: Application) : AndroidViewModel(app) {
         gitBaseLabel = null
         gitMode = "working"
         gitLoading = true
-        loadGit("working")
+        loadGit("working", fallbackToCommitted = true)
     }
 
     fun closeGit() {
@@ -395,7 +464,7 @@ class AppModel(app: Application) : AndroidViewModel(app) {
         gitLoading = false
     }
 
-    fun loadGit(mode: String = gitMode) {
+    fun loadGit(mode: String = gitMode, fallbackToCommitted: Boolean = false) {
         val c = client ?: return
         val dir = gitDirectory ?: return
         viewModelScope.launch {
@@ -404,12 +473,22 @@ class AppModel(app: Application) : AndroidViewModel(app) {
             gitMode = mode
             if (mode == "working") gitStatus = emptyList()
             gitDiffFiles = emptyList()
+            var switchToCommitted = false
             try {
                 val (info, base, status, diffs) = withContext(Dispatchers.IO) {
                     val i = runCatching { c.vcsInfo(dir) }.getOrDefault(VcsInfo())
                     val b = runCatching { c.vcsBase(dir) }.getOrNull()
                     val s = if (mode == "working") runCatching { c.vcsStatus(dir) }.getOrDefault(emptyList()) else emptyList()
-                    val d = runCatching { c.vcsDiff(dir, mode) }.getOrDefault(emptyList())
+                    // committed 模式在服务端是「merge-base(base)..HEAD」；传 HEAD~1 才是真正的
+                    // 「上一次提交」差异。单提交仓库没有 HEAD~1，退回服务端默认基线。
+                    val d = runCatching {
+                        if (mode == "committed") {
+                            runCatching { c.vcsDiff(dir, mode, "HEAD~1") }
+                                .getOrElse { c.vcsDiff(dir, mode) }
+                        } else {
+                            c.vcsDiff(dir, mode)
+                        }
+                    }.getOrDefault(emptyList())
                     Quad(i, b, s, d)
                 }
                 gitInfo = info
@@ -419,11 +498,15 @@ class AppModel(app: Application) : AndroidViewModel(app) {
                 if (gitSelectedFile != null && diffs.none { it.file == gitSelectedFile }) {
                     gitSelectedFile = diffs.firstOrNull()?.file
                 }
+                // 工作区干净时打开 Git 会是一片空白；自动切到「上一次提交」，至少能看到最近一次改动。
+                switchToCommitted = fallbackToCommitted && mode == "working" &&
+                    info.provider.isNotBlank() && status.isEmpty() && diffs.isEmpty()
             } catch (e: Exception) {
                 gitError = e.message ?: "加载 Git 信息失败"
             } finally {
                 gitLoading = false
             }
+            if (switchToCommitted) loadGit("committed")
         }
     }
 
@@ -469,6 +552,9 @@ class AppModel(app: Application) : AndroidViewModel(app) {
     private var eventJob: Job? = null
     private var reloadJob: Job? = null
     private var sessionsJob: Job? = null
+    private var connectJob: Job? = null
+    private var hadConnected = false
+    private val mainHandler = android.os.Handler(Looper.getMainLooper())
 
     // =========================================================================
     // 连接
@@ -478,7 +564,8 @@ class AppModel(app: Application) : AndroidViewModel(app) {
         val normalized = OcClient.normalize(url)
         connecting = true
         connectionError = null
-        viewModelScope.launch {
+        connectJob?.cancel()
+        connectJob = viewModelScope.launch {
             try {
                 val c = OcClient(normalized, pwd)
                 val info = withContext(Dispatchers.IO) { c.ping() } as? JsonObject
@@ -490,8 +577,11 @@ class AppModel(app: Application) : AndroidViewModel(app) {
                     .onSuccess { homeDir = it }
                 connected = true
                 connecting = false
+                hadConnected = true
                 if (remember) {
                     prefs.edit().putString("url", normalized).putString("password", pwd).apply()
+                    // 只有真正连上才进「已保存」，避免把打错的地址留在列表里
+                    rememberConnection(normalized, pwd)
                 }
                 retryJob?.cancel()
                 retryDelay = 5_000L
@@ -500,17 +590,44 @@ class AppModel(app: Application) : AndroidViewModel(app) {
                 loadPermissions()
                 loadMeta()
                 startEvents()
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 connecting = false
                 connected = false
                 connectionError = e.message ?: e.javaClass.simpleName
-                scheduleReconnect()
+                // 登录页第一次连不上就停在这里，不要一直「连接中」；
+                // 只有用过一段时间后掉线才自动退避重连。
+                if (hadConnected) scheduleReconnect() else stopRetry()
             }
         }
     }
 
-    fun disconnect() {
+    /**
+     * 用户改配置 / 点取消时打断正在进行的连接。
+     * 打断后停在登录页，不自动重试。
+     */
+    fun cancelConnect() {
+        connectJob?.cancel()
+        connectJob = null
+        stopRetry()
+        hadConnected = false
+        connecting = false
+        connectionError = null
+    }
+
+    private fun stopRetry() {
         retryJob?.cancel()
+        retryJob = null
+        retryDelay = 5_000L
+    }
+
+    fun disconnect() {
+        connectJob?.cancel()
+        connectJob = null
+        stopRetry()
+        hadConnected = false
+        connecting = false
         ConnectionService.stop(getApplication())
         eventJob?.cancel()
         reloadJob?.cancel()
@@ -652,13 +769,14 @@ class AppModel(app: Application) : AndroidViewModel(app) {
     private var retryDelay = 5_000L
 
     private fun scheduleReconnect() {
+        if (!hadConnected) return
         if (retryJob?.isActive == true) return
         if (serverUrl.isBlank()) return
         val delayMs = retryDelay
         retryDelay = (retryDelay * 2).coerceAtMost(60_000L)
         retryJob = viewModelScope.launch {
             delay(delayMs)
-            if (!connected && !connecting && serverUrl.isNotBlank()) {
+            if (hadConnected && !connected && !connecting && serverUrl.isNotBlank()) {
                 connect(serverUrl, password)
             }
         }
@@ -671,9 +789,18 @@ class AppModel(app: Application) : AndroidViewModel(app) {
         if (serverUrl.isNotBlank()) connect(serverUrl, password)
     }
 
-    /** 回到前台时调用：只在断开时补一次，连上就不动。 */
+    /** 回到前台时调用：只在已经连过、掉线的情况下补一次；登录页上连不上就不重试。 */
     fun retryIfNeeded() {
-        if (!connected && !connecting && serverUrl.isNotBlank()) retryNow()
+        if (hadConnected && !connected && !connecting && serverUrl.isNotBlank()) retryNow()
+    }
+
+    /**
+     * 确保前台保活服务在跑。Adia 在 Activity.onCreate 里就会自动连接，
+     * 此时应用还不算可见，`startForegroundService` 可能被系统拒绝（异常被吞掉），
+     * 退到后台后 SSE 就断了。回到前台再补一次，失败也无副作用。
+     */
+    fun ensureKeepAlive() {
+        if (connected) ConnectionService.start(getApplication())
     }
 
     /**
@@ -1098,7 +1225,7 @@ class AppModel(app: Application) : AndroidViewModel(app) {
     /** 新建会话对话框里浏览目录用，不影响「文件」页签的状态。 */
     suspend fun browseDirs(path: String?): Pair<String, List<FsEntry>> {
         val c = client ?: return "" to emptyList()
-        return withContext(Dispatchers.IO) { c.listDir(expandUserPath(path) ?: "") }
+        return withContext(Dispatchers.IO) { c.listDir(absoluteFsPath(path) ?: "") }
     }
 
     /** 在指定目录下新建文件夹（走服务端的 shell，随后让对话框自己刷新）。 */
@@ -1529,7 +1656,7 @@ class AppModel(app: Application) : AndroidViewModel(app) {
     // =========================================================================
 
     fun overrideFsRoot(path: String?) {
-        val next = path?.trimEnd('/')?.takeIf { it.isNotBlank() }
+        val next = normPath(path.orEmpty()).trimEnd('/').takeIf { it.isNotBlank() }
         if (next != fsRootOverride) {
             fsRootOverride = next
             fsRoot = fsBase()
@@ -1563,13 +1690,15 @@ class AppModel(app: Application) : AndroidViewModel(app) {
         val s = raw?.trim().orEmpty()
         if (s.isBlank()) return null
         val home = homePath()
-        if (home.isBlank()) return s
-        return when {
-            s == "~" || s == "~/" -> home
-            s.startsWith("~/") -> home + s.drop(1)
-            s == "/" -> sessionRoot().ifBlank { home }
-            else -> s
-        }
+        if (home.isBlank()) return normPath(s)
+        return normPath(
+            when {
+                s == "~" || s == "~/" -> home
+                s.startsWith("~/") -> home + s.drop(1)
+                s == "/" -> sessionRoot().ifBlank { home }
+                else -> s
+            },
+        )
     }
 
     /** Solo expande "~"; deja "/" y las rutas absolutas tal cual. */
@@ -1577,12 +1706,32 @@ class AppModel(app: Application) : AndroidViewModel(app) {
         val s = raw?.trim().orEmpty()
         if (s.isBlank()) return null
         val home = homePath()
-        if (home.isBlank()) return s
-        return when {
-            s == "~" || s == "~/" -> home
-            s.startsWith("~/") -> home + s.drop(1)
-            else -> s
-        }
+        if (home.isBlank()) return normPath(s)
+        return normPath(
+            when {
+                s == "~" || s == "~/" -> home
+                s.startsWith("~/") -> home + s.drop(1)
+                else -> s
+            },
+        )
+    }
+
+    /**
+     * 把任意路径变成服务端能直接用的绝对路径。
+     *
+     * 工具/正文里经常是 `src/main.kt` 这种**不以斜杠开头**的相对路径；
+     * 直接交给 `/api/fs/read` 会被服务端按它自己的工作目录解析，轻则 404，
+     * 重则打开错文件。这里统一补：当前会话目录 → HOME → 文件页根。
+     */
+    fun resolvePath(raw: String?): String? {
+        val s = raw?.trim().orEmpty()
+        if (s.isBlank()) return null
+        val expanded = expandUserPath(s) ?: return null
+        if (isAbsolutePath(expanded)) return expanded
+        val base = current?.directory?.takeIf { it.isNotBlank() }
+            ?: homeDir.takeIf { it.isNotBlank() }
+            ?: fsRootOverride
+        return if (base.isNullOrBlank()) expanded else joinPath(base, expanded)
     }
 
     /** "/" del explorador de archivos: override del host o la raiz real. */
@@ -1592,10 +1741,15 @@ class AppModel(app: Application) : AndroidViewModel(app) {
     /** "~" del explorador: HOME real del servidor. */
     fun fsHome(): String = homePath()
 
+    private fun absoluteFsPath(raw: String?): String? {
+        val p = expandUserPath(raw)?.let(::normPath) ?: return null
+        return if (isAbsolutePath(p)) p else joinPath(fsBase(), p)
+    }
+
     fun loadDir(path: String?) {
         val c = client ?: return
-        val requested = expandUserPath(path)
-        val target = requested ?: fsRootOverride
+        val requested = absoluteFsPath(path)
+        val target = requested ?: fsRootOverride?.let(::normPath)
         val seq = ++fsLoadSeq
         fsLoading = true
         fsError = null
@@ -1604,7 +1758,7 @@ class AppModel(app: Application) : AndroidViewModel(app) {
                 val (dir, entries) = withContext(Dispatchers.IO) { c.listDir(target) }
                 if (seq != fsLoadSeq) return@launch
                 fsRoot = fsBase()
-                fsDir = dir.ifBlank { target.orEmpty() }.trimEnd('/').ifBlank { "/" }
+                fsDir = normPath(dir.ifBlank { target.orEmpty() }).trimEnd('/').ifBlank { "/" }
                 fsEntries = entries.sortedWith(compareByDescending<FsEntry> { it.isDir }.thenBy { it.name.lowercase() })
             } catch (e: Exception) {
                 if (seq == fsLoadSeq) {
@@ -1619,7 +1773,8 @@ class AppModel(app: Application) : AndroidViewModel(app) {
 
     fun openFile(path: String) {
         val c = client ?: return
-        openFile = path
+        val filePath = resolvePath(path) ?: return
+        openFile = filePath
         openFileText = ""
         openFileImage = null
         openFileBinary = false
@@ -1631,10 +1786,10 @@ class AppModel(app: Application) : AndroidViewModel(app) {
         openFileLoading = true
         viewModelScope.launch {
             try {
-                val file = withContext(Dispatchers.IO) { c.readFileRaw(path) }
+                val file = withContext(Dispatchers.IO) { c.readFileRaw(filePath) }
                 openFileMime = file.mime
                 openFileBytesSize = file.bytes.size.toLong()
-                val lower = path.substringAfterLast('.', "").lowercase()
+                val lower = filePath.substringAfterLast('.', "").lowercase()
                 val mediaKind = when {
                     file.mime.startsWith("video/") || lower in VIDEO_EXTS -> "video"
                     file.mime.startsWith("audio/") || lower in AUDIO_EXTS -> "audio"
@@ -1642,7 +1797,7 @@ class AppModel(app: Application) : AndroidViewModel(app) {
                 }
                 when {
                     mediaKind != null -> {
-                        val uri = withContext(Dispatchers.IO) { writeMediaCache(path, file.bytes, lower) }
+                        val uri = withContext(Dispatchers.IO) { writeMediaCache(filePath, file.bytes, lower) }
                         if (uri != null) {
                             openFileMediaKind = mediaKind
                             openFileMediaUri = uri
@@ -1823,15 +1978,23 @@ class AppModel(app: Application) : AndroidViewModel(app) {
     fun createPty() {
         val c = client ?: return
         viewModelScope.launch {
-            try {
-                val cwd = expandSessionDir(current?.directory)
-                val p = withContext(Dispatchers.IO) { c.ptyCreate("bash", cwd) }
-                if (p != null) {
-                    loadPtys()
-                    attachPty(p)
-                }
-            } catch (e: Exception) {
-                ptyError = e.message
+            ptyError = null
+            val cwd = expandSessionDir(current?.directory)
+            // 先让服务端用自己的默认 shell（Windows 上是 Git Bash / cmd.exe）；
+            // 旧服务端不认「无 command」时再退回 bash。
+            // Adia 本机终端不走这里：宿主注入 Termux/proot shell，和远端 PTY 是两条路。
+            val created = withContext(Dispatchers.IO) {
+                runCatching { c.ptyCreate(null, cwd) }
+                    .recoverCatching { c.ptyCreate("bash", cwd) }
+            }
+            val p = created.getOrNull()
+            if (p != null) {
+                loadPtys()
+                attachPty(p)
+            } else {
+                val detail = created.exceptionOrNull()?.message
+                    ?: "服务端没有返回终端"
+                ptyError = "创建终端失败：$detail"
             }
         }
     }
@@ -1878,13 +2041,13 @@ class AppModel(app: Application) : AndroidViewModel(app) {
                     }
 
                     override fun onMessage(webSocket: WebSocket, text: String) {
-                        ptyEmulator?.writeInput(text.toByteArray())
+                        writePtyOutput(text.toByteArray())
                     }
 
                     override fun onMessage(webSocket: WebSocket, bytes: ByteString) {
                         // 控制帧：0x00 + JSON {cursor}
                         if (bytes.size > 1 && bytes[0] == 0.toByte()) return
-                        ptyEmulator?.writeInput(bytes.toByteArray())
+                        writePtyOutput(bytes.toByteArray())
                     }
 
                     override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
@@ -1908,6 +2071,15 @@ class AppModel(app: Application) : AndroidViewModel(app) {
 
     fun sendPty(text: String) {
         ptySocket?.send(text)
+    }
+
+    /**
+     * 服务端输出在 OkHttp 线程到达；libvterm 的 emulator 是主线程 looper，
+     * 统一 post 到主线程再写入，避免偶发花屏 / 崩溃。
+     */
+    private fun writePtyOutput(bytes: ByteArray) {
+        if (bytes.isEmpty()) return
+        mainHandler.post { ptyEmulator?.writeInput(bytes) }
     }
 
     fun updatePtyFontSize(size: Float) {

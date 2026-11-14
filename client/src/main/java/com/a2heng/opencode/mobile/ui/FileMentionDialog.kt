@@ -34,6 +34,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.a2heng.opencode.mobile.data.AppModel
 import com.a2heng.opencode.mobile.data.FsEntry
+import com.a2heng.opencode.mobile.data.isAbsolutePath
+import com.a2heng.opencode.mobile.data.joinPath
+import com.a2heng.opencode.mobile.data.normPath
 
 /**
  * 从工作目录里选一个文件，插入 `@相对路径` 引用（opencode 的 mention 写法）。
@@ -76,11 +79,22 @@ fun FileMentionPage(
         ) {
             IconButton(
                 onClick = {
-                    val r = root.trimEnd('/')
-                    val cur = path.trimEnd('/')
-                    val parent = cur.substringBeforeLast('/')
-                    if (cur.isNotEmpty() && cur != r && parent.length >= r.length) {
-                        path = parent.ifBlank { r }
+                    val r = normPath(root).trimEnd('/')
+                    var cur = normPath(path).trimEnd('/')
+                    if (cur.isNotEmpty() && !isAbsolutePath(cur)) {
+                        cur = if (r.isNotEmpty()) joinPath(r, cur) else "/" + cur.trimStart('/')
+                        cur = cur.trimEnd('/')
+                    }
+                    val rawParent = cur.substringBeforeLast('/', "")
+                    val parent = when {
+                        rawParent.isEmpty() -> "/"
+                        Regex("^[A-Za-z]:$").matches(rawParent) -> "$rawParent/"
+                        else -> rawParent
+                    }
+                    val atRoot = cur.isEmpty() || cur == r ||
+                        cur == "/" || Regex("^[A-Za-z]:$").matches(cur)
+                    if (!atRoot && parent.length >= r.length) {
+                        path = parent
                     }
                 },
                 enabled = path.trimEnd('/').isNotEmpty() && path.trimEnd('/') != root.trimEnd('/'),
@@ -153,5 +167,4 @@ fun FileMentionPage(
     }
 }
 
-private fun fullPath(root: String, relative: String): String =
-    root.trimEnd('/') + "/" + relative.trimStart('/')
+private fun fullPath(root: String, relative: String): String = joinPath(root, relative)

@@ -59,6 +59,9 @@ import com.a2heng.opencode.mobile.data.AppModel
 fun SettingsScreen(model: AppModel) {
     var showModelPicker by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) { model.loadMeta() }
+    // 选择页必须放在滚动 Column 外面：verticalScroll 给子项无限高度，
+    // fillMaxSize 的选择页会被压成 0 高度，表现就是「点默认模型没反应」。
+    Box(Modifier.fillMaxSize()) {
     Column(
         Modifier
             .fillMaxSize()
@@ -279,7 +282,6 @@ fun SettingsScreen(model: AppModel) {
         Spacer(Modifier.height(24.dp))
     }
 
-    if (showModelPicker) {
         val noneLabel = model.serverDefaultModel?.let {
             "服务器默认（${modelDisplay(it, model.modelGroupById)}）"
         } ?: "服务器默认"

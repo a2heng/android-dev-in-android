@@ -41,6 +41,21 @@ If a change makes the user learn an internal detail, it is probably wrong.
     `docs/paths.md`; run it on a real device (`oc-engine status` must say
     `proot`, `oc-doctor`, `bash -lc 'git --version'`, `python3 --version`,
     `pkg install -y jq`).
+12. **`client/` is a copy of the LAN client** (`a2heng/opencode-android-ui`).
+    Shared behavior (default model, saved connections, keepalive, path
+    normalization/resolution) must stay in sync; only branding, the update
+    repo, Adia's HOME-only file presets and the host-injected Termux shell may
+    differ. The checklist lives in [`docs/mobile-integration.md`](docs/mobile-integration.md).
+    Do not reintroduce a git submodule.
+13. **Relative paths are not optional.** `normPath` only fixes separators;
+    a path that does not start with `/` (or a drive) must be completed by
+    `AppModel.resolvePath` / `Markdown.resolveFileRef` before it reaches
+    `/api/fs/read`. The server resolves bare relative paths against its own
+    cwd, which silently opens the wrong file or returns 404.
+14. **`RELEASE_NOTES.md` is incremental.** Keep only the version being released
+    (relative to the previous tag), in Chinese, with no historical sections and
+    no English copy. CI passes the whole file as the GitHub Release body, so a
+    stacked history would be published verbatim.
 
 The Windows toolchain lives at `D:\AndroidDevToolchain`; its README explains
 the single JDK/SDK/PATH setup.

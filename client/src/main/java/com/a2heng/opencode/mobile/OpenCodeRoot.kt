@@ -42,7 +42,11 @@ fun OpenCodeMobileRoot(
 ) {
     val model: AppModel = viewModel()
     model.overrideFsRoot(fsRoot)
-    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { model.refreshOnResume() }
+    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
+        // 启动时的 connect 可能早于应用可见，保活服务会启动失败；回到前台补一次。
+        model.ensureKeepAlive()
+        model.refreshOnResume()
+    }
     OcTheme(themeMode = model.themeMode, appearance = model.appearance) {
         LaunchedEffect(shared) {
             shared?.let {

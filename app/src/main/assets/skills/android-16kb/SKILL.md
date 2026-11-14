@@ -97,7 +97,7 @@ version that officially uses the newer natives, or rebuild it.
 
 | Component | Status |
 |---|---|
-| opencode 2.2.6 musl | 16 KB |
+| opencode 2.2.7 musl | 16 KB |
 | musl loader, proot, libc++/libstdc++/libgcc, librg, libandroid-shmem | 16 KB |
 | Termux JDK (`libjvm.so`, `libjava.so`) | 16 KB |
 | Termux `bash`/`git`/`node`/`python3` | 16 KB |

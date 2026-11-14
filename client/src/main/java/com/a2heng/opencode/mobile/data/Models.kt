@@ -125,7 +125,7 @@ data class SessionInfo(
                 id = o.str("id") ?: "",
                 title = o.str("title") ?: "",
                 projectID = o.str("projectID") ?: "",
-                directory = o.obj("location")?.str("directory") ?: "",
+                directory = normPath(o.obj("location")?.str("directory") ?: ""),
                 agent = o.str("agent") ?: "",
                 model = ModelRef.from(o["model"]),
                 cost = o.dbl("cost"),
@@ -368,6 +368,34 @@ fun parseForm(o: JsonObject) = FormInfo(
     },
 )
 
+/**
+ * 统一路径分隔符：Windows 服务端返回 `D:\a\b`，界面和比较逻辑都按 `/` 走。
+ * 不统一的话 `substringBeforeLast('/')` 找不到分隔符，「上一级」就原地踏步。
+ */
+fun normPath(raw: String): String {
+    if (raw.isEmpty()) return raw
+    if (!raw.contains('\\')) return raw
+    val unc = raw.startsWith("\\\\") || raw.startsWith("//")
+    var s = raw.replace('\\', '/')
+    while (s.contains("//")) s = s.replace("//", "/")
+    return if (unc) "/$s" else s
+}
+
+/** 绝对路径：`/...`、Windows 盘符 `C:/...` 或 UNC（已由 normPath 转成 `//...`）。 */
+fun isAbsolutePath(path: String): Boolean {
+    val p = normPath(path)
+    return p.startsWith("/") || Regex("^[A-Za-z]:/").containsMatchIn(p)
+}
+
+/** 把服务端返回的相对路径补到基准目录上；已经是绝对路径就原样返回。 */
+fun joinPath(base: String, relative: String): String {
+    val r = normPath(relative)
+    if (r.isBlank()) return normPath(base)
+    if (isAbsolutePath(r)) return r
+    val b = normPath(base).trimEnd('/')
+    return if (b.isBlank()) r else "$b/" + r.trimStart('/')
+}
+
 data class FsEntry(val path: String, val type: String) {
     val name: String get() = path.trimEnd('/').substringAfterLast('/').ifBlank { path }
     val isDir: Boolean get() = type == "directory"
@@ -396,6 +424,12 @@ data class Attachment(val name: String, val mime: String, val base64: String)
 
 /** 从系统分享面板进来的一次性内容。 */
 data class SharedPayload(val text: String?, val image: Attachment?)
+
+/**
+ * 登录页保存的连接。只在真正连上过服务端之后才写入，
+ * 下拉列表里选中即可把地址和密码一起填回来。
+ */
+data class SavedConnection(val url: String, val password: String)
 
 data class PtyInfo(
     val id: String,

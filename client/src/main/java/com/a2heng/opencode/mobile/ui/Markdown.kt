@@ -47,6 +47,9 @@ import androidx.compose.ui.text.withLink
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.a2heng.opencode.mobile.data.isAbsolutePath
+import com.a2heng.opencode.mobile.data.joinPath
+import com.a2heng.opencode.mobile.data.normPath
 
 // ---------------------------------------------------------------------------
 // 一个够用的 Markdown 渲染器（不引第三方库）：
@@ -633,21 +636,26 @@ fun resolveFileRef(raw: String, baseDir: String, homeDir: String): String {
     var s = raw.trim()
     if (s.startsWith("file://")) {
         s = s.removePrefix("file://")
-        // file:///C:/... (Windows 风格) 在 Linux 上很少见，但顺手处理
+        // file:///C:/... (Windows 风格)
         if (Regex("""^/[A-Za-z]:""").containsMatchIn(s)) s = s.removePrefix("/")
         s = runCatching { java.net.URLDecoder.decode(s, "UTF-8") }.getOrElse { s }
         s = s.substringBefore('?').substringBefore('#')
     }
-    s = cleanMatch(s)
+    s = normPath(cleanMatch(s))
+    val home = normPath(homeDir).trimEnd('/')
     return when {
-        s.startsWith("~/") -> {
-            val home = homeDir.trimEnd('/')
-            if (home.isNotBlank()) home + s.removePrefix("~") else s
-        }
-        s.startsWith("/") -> s
+        s == "~" || s == "~/" -> home.ifBlank { s }
+        s.startsWith("~/") -> if (home.isNotBlank()) home + s.drop(1) else s
+        isAbsolutePath(s) -> s
         else -> {
-            val base = baseDir.trimEnd('/')
-            if (base.isNotBlank()) "$base/$s" else s
+            // 相对路径（不以 / 开头）：优先按会话目录补全；没有会话目录就按 HOME，
+            // 否则服务端会按自己的工作目录解析，打开错文件或直接 404。
+            val base = normPath(baseDir).trimEnd('/')
+            when {
+                base.isNotBlank() -> joinPath(base, s)
+                home.isNotBlank() -> joinPath(home, s)
+                else -> s
+            }
         }
     }
 }

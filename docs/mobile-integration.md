@@ -21,6 +21,31 @@ project(":client").projectDir = file("client")
 - 两者不再通过 git submodule 关联，也不要求对方在同一台机器/同一个 APK 里。
   代码曾经同源，之后各自演进；公共修复需要手动 cherry-pick/复制。
 
+## 共用代码的同步约定（2026-11-14）
+
+两边的 `client/` 只有**品牌/宿主差异**允许不同：
+
+- 登录页标题、设置页「关于」、更新仓库地址（`UpdateClient.API`）和下载文件名。
+- Adia 文件页不提供 `/`、`/tmp/opencode` 胶囊（应用沙箱读不到真实根目录）；
+  路径标签用 `~` 表示 HOME。独立客户端可以浏览真实 `/`。
+- 新建会话对话框 Adia 用「HOME / 项目区」，独立客户端用「~ / /」。
+
+其余行为必须保持一致，改了一边要同步另一边：
+
+| 能力 | 位置 | 说明 |
+| --- | --- | --- |
+| 默认模型 | `SettingsScreen.kt` + `AppModel.updateDefaultModel` | 选择页必须放在滚动 Column **外面**（用 `Box`），否则 `fillMaxSize` 被压成 0 高度，表现为「点默认模型没反应」；新建会话后调 `POST /api/session/{id}/model` 真正落到服务端 |
+| 保存连接 | `ConnectScreen.kt` + `AppModel.savedConnections` | 只有 ping 通过才写入；地址栏右侧箭头下拉、回填密码、可删除；改地址/密码或取消立即 `cancelConnect()` |
+| 连接重试 | `AppModel.connect` | 登录页第一次连不上停在原地（`hadConnected=false`），用过之后掉线才退避重连；`ON_RESUME` 补一次 |
+| 后台保活 | `ConnectionService.kt` + `OpenCodeRoot.kt` | 连上后前台服务保持 SSE；`ON_RESUME` 调 `ensureKeepAlive()` 补启动（宿主在 `onCreate` 自动连接时可能被系统拒绝 FGS） |
+| 路径统一 | `Models.kt` → `normPath` / `isAbsolutePath` / `joinPath` | 服务端返回的 `\` 统一成 `/`；`C:` 的上一级是 `C:/` |
+| 相对路径 | `AppModel.resolvePath` / `Markdown.resolveFileRef` | 不以 `/` 开头的路径按「会话目录 → HOME → 文件页根」补全，避免 `/api/fs/read` 按服务端 cwd 解析（404/打开错文件） |
+| 文件页上一级 | `FilesScreen.kt` / `NewSessionDialog.kt` / `FileMentionDialog.kt` | 根路径（`/`、`C:/`）不再往上；相对 `fsDir` 先补到基准根再切父目录 |
+| Git「上一次提交」 | `AppModel.loadGit` | committed 模式传 `base=HEAD~1`；工作区干净时自动切过去 |
+| 会话列表去重 | `SessionsScreen.kt` | 时间视图必须用 `groupedRest`（`recent` 已从 `rest` 取走前 3 条），否则同一会话出现两次 |
+| PTY | `AppModel.createPty` | 远端终端先让服务端用自己的默认 shell（Windows 上是 Git Bash/cmd），旧服务端再退回 `bash`；**Adia 本机终端不走这里**，由宿主注入 Termux/proot shell |
+
+
 ## 构建
 
 ```sh

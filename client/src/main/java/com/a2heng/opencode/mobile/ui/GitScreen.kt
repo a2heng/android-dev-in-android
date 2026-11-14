@@ -130,7 +130,8 @@ fun GitScreen(
                 }
                 EmptyState(
                     msg,
-                    "可切换「未提交 / 上一次提交」查看；逐条 commit 历史记录需要服务端提供 git log 接口（当前 /api/vcs 未提供）。",
+                    "「工作区」显示未提交的改动；「上一次提交」显示最近一次提交（HEAD~1 → HEAD）的改动。" +
+                        "逐条 commit 历史记录需要服务端提供 git log 接口（当前 /api/vcs 未提供）。",
                 )
             } else {
                 LazyColumn(
