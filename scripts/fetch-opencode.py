@@ -50,7 +50,7 @@ def download(url, dest):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--version", default="2.2.7")
+    ap.add_argument("--version", default="2.3.0")
     args = ap.parse_args()
 
     name = f"opencode-linux-arm64-musl-{args.version}.tar.gz"

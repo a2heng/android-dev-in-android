@@ -5,7 +5,7 @@
 
 - 应用名：**Adia**
 - 包名：`com.a2heng.adia`
-- opencode：**2.2.7**（musl arm64，原生运行）
+- opencode：**2.3.0**（musl arm64，原生运行）
 - 目标：把「opencode + JDK + Android SDK + Gradle + 调试工具」全部塞进一个可离线
   使用的 APK，不依赖电脑、不依赖 Termux 外部应用、首次启动不下载工具链。
 
@@ -247,7 +247,7 @@ Platform 37.0 / 36，Build-Tools 36.0.0。
 ```sh
 # 1) 补 opencode 运行时（仓库不提交 208 MB 的二进制）
 curl -L -o /tmp/oc.tar.gz \
-  https://github.com/anomalyco/opencode/releases/download/v2.2.7/opencode-linux-arm64-musl.tar.gz
+  https://github.com/anomalyco/opencode/releases/download/v2.3.0/opencode-linux-arm64-musl.tar.gz
 tar -xzf /tmp/oc.tar.gz -C /tmp
 cp /tmp/opencode app/src/main/jniLibs/arm64-v8a/libopencode2_bin.so
 chmod 755 app/src/main/jniLibs/arm64-v8a/libopencode2_bin.so

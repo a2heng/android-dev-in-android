@@ -4,6 +4,10 @@
 
 ## 本版：客户端与 OpenCode 安卓 UI 对齐
 
+### 运行时
+
+- 内置 opencode 升到 **2.3.0**（Linux arm64 musl）。此前构建配置写 2.2.7、CI 却仍拉 2.2.6；现在 `build.gradle`、CI/release 工作流、`fetch-opencode.py` 默认值和文档统一为 2.3.0。
+
 ### 默认模型
 
 - 设置页的选择页原来放在滚动 `Column` 里，被无限高度压成 0，表现为「点默认模型没反应」；现在放在 `Box` 里。

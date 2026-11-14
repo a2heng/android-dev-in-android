@@ -44,7 +44,7 @@ jobs:
         uses: gradle/actions/setup-gradle@v6
 
       - name: Fetch opencode runtime
-        run: python3 scripts/fetch-opencode.py --version 2.2.7
+        run: python3 scripts/fetch-opencode.py --version 2.3.0
 
       - name: Build debug APK
         run: |

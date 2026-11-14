@@ -19,7 +19,7 @@ android {
         versionName adiaVersionName
         buildConfigField "int", "SERVER_PORT", "4096"
         // Version del binario empaquetado en jniLibs. Actualizarla al cambiarlo.
-        buildConfigField "String", "OPENCODE_VERSION", "\"2.2.7\""
+        buildConfigField "String", "OPENCODE_VERSION", "\"2.3.0\""
         // Un solo runtime: proot. No hay buildConfigField de modo.
         // UI por defecto: mobile = frontend Compose embebido (:client);
         // web = WebView clasico (solo como respaldo).
